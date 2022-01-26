@@ -1,0 +1,7 @@
+version: "2.1"
+
+services:
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.2.3
+    ports:
+      - "127.0.0.1:9324:9324"

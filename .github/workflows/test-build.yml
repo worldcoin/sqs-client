@@ -1,0 +1,28 @@
+name: Test, Build & Deploy
+on: [push]
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+  QUEUE_HOST: elasticmq:9324
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: golang:1.17.1-alpine3.14
+    services:
+      elasticmq:
+        image: softwaremill/elasticmq-native:1.2.3
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v2
+      - run: apk add git gcc musl-dev
+      - run: go test ./...
+  snyk-scan:
+    runs-on: ubuntu-latest
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v2
+      - uses: snyk/actions/setup@master
+      - run: snyk test
