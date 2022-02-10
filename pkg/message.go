@@ -3,11 +3,11 @@ package sqs
 import (
 	"encoding/json"
 
-	"github.com/aws/aws-sdk-go/service/sqs"
+	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 )
 
 type Message struct {
-	*sqs.Message
+	*types.Message
 	err chan error
 }
 
@@ -15,7 +15,7 @@ func (m *Message) Decode(out interface{}) error {
 	return json.Unmarshal(m.body(), &out)
 }
 
-func newMessage(m *sqs.Message) *Message {
+func newMessage(m *types.Message) *Message {
 	return &Message{m, make(chan error, 1)}
 }
 

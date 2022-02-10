@@ -3,176 +3,121 @@ package sqs
 import (
     "context"
     "encoding/json"
-    "errors"
     "os"
     "strconv"
+    "strings"
     "testing"
     "time"
 
-    "github.com/aws/aws-sdk-go/aws"
-    "github.com/aws/aws-sdk-go/service/sqs"
+    "github.com/aws/aws-sdk-go-v2/aws"
+    aws_config "github.com/aws/aws-sdk-go-v2/config"
+    "github.com/aws/aws-sdk-go-v2/credentials"
+    "github.com/aws/aws-sdk-go-v2/service/sqs"
+    "github.com/aws/aws-sdk-go-v2/service/sqs/types"
+
     log "github.com/sirupsen/logrus"
     "github.com/stretchr/testify/assert"
 )
 
-var conf = Config{
-    AwsAccessKey:      "sqs",
-    AwsSecretKey:      "sqs",
-    AwsRegion:         "us-east-1",
-    QueueHost:         "http://localhost:9324",
-    WorkerPool:        1,
-    VisibilityTimeout: 15,
-    DisableSSL:        true,
-}
+const (
+    awsRegion        = "us-east-1"
+    localAwsEndpoint = "http://localhost:4566"
+)
 
 type TestMsg struct {
     Name string `json:"name"`
 }
 
-func TestMain(m *testing.M) {
-    queueHost, found := os.LookupEnv("QUEUE_HOST")
-    if found {
-        conf.QueueHost = queueHost
-    }
-    code := m.Run()
-    os.Exit(code)
+type MsgHandler struct {
+    t                 *testing.T
+    msgsReceivedCount int
+    expectedMsg       TestMsg
 }
 
 func TestConsume(t *testing.T) {
-    var receivedMsg TestMsg
-    msgsReceivedCount := 0
-    handler := func(ctx context.Context, m *Message) error {
-        msgsReceivedCount += 1
-        err := json.Unmarshal(m.body(), &receivedMsg)
-        if err != nil {
-            log.Error("error unmarshalling message")
-            t.FailNow()
-        }
-        return err
-    }
+    ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+    awsCfg := loadAWSDefaultConfig(ctx)
 
-    queue, consumer := createQueueAndConsumer(t, handler)
+    queueName := strings.ToLower(t.Name())
+    queueUrl := createQueue(t, ctx, awsCfg, queueName)
+
+    expectedMsg := TestMsg{Name: "TestName"}
+
+    msgHandler := handler(t, expectedMsg)
+    consumer, err := NewConsumer(ctx, awsCfg, queueName, 20, 10, 1, msgHandler)
+    if err != nil {
+        log.Error("error while creating consumer")
+        t.FailNow()
+    }
+    go consumer.Consume(ctx)
 
     t.Cleanup(func() {
-        consumer.Stop()
-        _, err := consumer.SQS.PurgeQueue(&sqs.PurgeQueueInput{QueueUrl: queue.QueueUrl})
+        _, err := consumer.sqs.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: queueUrl})
         if err != nil {
             log.Error("failed to purge queue")
             t.FailNow()
         }
+        cancel()
     })
 
     // Send message to the queue
-    expectedMsg := sendTestMsg(t, consumer, queue)
+    sendTestMsg(t, ctx, consumer, queueUrl, expectedMsg)
 
     // Wait for the message to arrive
     time.Sleep(time.Second * 1)
 
     // Check that the message arrived
-    assert.Equal(t, 1, msgsReceivedCount)
-    assert.Equal(t, expectedMsg, receivedMsg)
+    assert.Equal(t, 1, msgHandler.msgsReceivedCount)
 
     // Check that received message was deleted from the queue
-    messageCount := getNumOfVisibleMessagesInQueue(t, consumer, queue)
+    messageCount := getNumOfVisibleMessagesInQueue(t, ctx, consumer, queueUrl)
     assert.Equal(t, 0, messageCount)
-    messageCount = getNumOfNotVisibleMessagesInQueue(t, consumer, queue)
+    messageCount = getNumOfNotVisibleMessagesInQueue(t, ctx, consumer, queueUrl)
     assert.Equal(t, 0, messageCount)
 }
 
-func TestConsume_WhenHandlerIsDelayed_MessageIsExtended(t *testing.T) {
-    msgsReceivedCount := 0
-    handler := func(ctx context.Context, m *Message) error {
-        msgsReceivedCount += 1
-        time.Sleep(time.Second * 20)
-        return nil
+func handler(t *testing.T, expectedMsg TestMsg) *MsgHandler {
+    return &MsgHandler{
+        t:                 t,
+        msgsReceivedCount: 0,
+        expectedMsg:       expectedMsg,
     }
-
-    queue, consumer := createQueueAndConsumer(t, handler)
-
-    t.Cleanup(func() {
-        consumer.Stop()
-        _, err := consumer.SQS.PurgeQueue(&sqs.PurgeQueueInput{QueueUrl: queue.QueueUrl})
-        if err != nil {
-            log.Error("failed to purge queue")
-            t.FailNow()
-        }
-    })
-
-    // Send message to the queue
-    sendTestMsg(t, consumer, queue)
-
-    // Wait for the message to be extended at least once
-    time.Sleep(time.Second * 12)
-
-    // Check that the message arrived
-    assert.True(t, msgsReceivedCount == 1)
-
-    // Check that received message was not deleted from the queue because handler hasn't completed yet
-    messageCount := getNumOfVisibleMessagesInQueue(t, consumer, queue)
-    assert.Equal(t, 0, messageCount)
-    messageCount = getNumOfNotVisibleMessagesInQueue(t, consumer, queue)
-    assert.Equal(t, 1, messageCount)
 }
 
-func TestConsume_WhenHandlerFails_HandlerIsRetried(t *testing.T) {
-    msgsReceivedCount := 0
-    handler := func(ctx context.Context, m *Message) error {
-        msgsReceivedCount += 1
-        return errors.New("fake error")
-    }
-
-    queue, consumer := createQueueAndConsumer(t, handler)
-
-    t.Cleanup(func() {
-        consumer.Stop()
-        _, err := consumer.SQS.PurgeQueue(&sqs.PurgeQueueInput{QueueUrl: queue.QueueUrl})
-        if err != nil {
-            log.Error("failed to purge queue")
-            t.FailNow()
-        }
-    })
-
-    // Send message to the queue
-    sendTestMsg(t, consumer, queue)
-
-    // Wait for the message to arrive
-    time.Sleep(time.Second * 40)
-
-    // Check that the handler was called twice (because when it fails it's retried every 30s)
-    assert.True(t, msgsReceivedCount == 2)
-
-    // Check that received message was not deleted because it's still being retried
-    messageCount := getNumOfVisibleMessagesInQueue(t, consumer, queue)
-    assert.Equal(t, 0, messageCount)
-    messageCount = getNumOfNotVisibleMessagesInQueue(t, consumer, queue)
-    assert.Equal(t, 1, messageCount)
-}
-
-func createQueueAndConsumer(t *testing.T, handler func(ctx context.Context, m *Message) error) (*sqs.CreateQueueOutput, *Consumer) {
-    queueName := "test_queue"
-
-    queue, err := CreateQueue(conf, queueName)
+func (m *MsgHandler) Run(ctx context.Context, msg *Message) error {
+    m.msgsReceivedCount += 1
+    var actualMsg TestMsg
+    err := json.Unmarshal(msg.body(), &actualMsg)
     if err != nil {
-        log.Error("error while creating queue")
+        log.Error("error unmarshalling message")
+        m.t.FailNow()
+    }
+
+    // Check that the message received is the expected one
+    assert.Equal(m.t, m.expectedMsg, actualMsg)
+
+    return err
+}
+
+func createQueue(t *testing.T, ctx context.Context, awsCfg aws.Config, queueName string) *string {
+    sqsSvc := sqs.NewFromConfig(awsCfg)
+
+    queue, err := sqsSvc.CreateQueue(ctx, &sqs.CreateQueueInput{
+        QueueName: aws.String(queueName),
+    })
+    if err != nil {
+        log.WithError(err).Error("error while creating queue")
         t.FailNow()
     }
 
-    consumer, err := NewConsumer(conf, queueName)
-    if err != nil {
-        log.Error("error while creating consumer")
-        t.FailNow()
-    }
-    consumer.RegisterHandler(handler)
-    go consumer.Consume()
-    return queue, consumer
+    return queue.QueueUrl
 }
 
-func sendTestMsg(t *testing.T, consumer *Consumer, queue *sqs.CreateQueueOutput) TestMsg {
-    expectedMsg := TestMsg{Name: "TestName"}
+func sendTestMsg(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl *string, expectedMsg TestMsg) TestMsg {
     messageBodyBytes, err := json.Marshal(expectedMsg)
-    _, err = consumer.SQS.SendMessage(&sqs.SendMessageInput{
+    _, err = consumer.sqs.SendMessage(ctx, &sqs.SendMessageInput{
         MessageBody: aws.String(string(messageBodyBytes)),
-        QueueUrl:    queue.QueueUrl,
+        QueueUrl:    queueUrl,
     })
     if err != nil {
         log.Error("error sending message")
@@ -181,26 +126,54 @@ func sendTestMsg(t *testing.T, consumer *Consumer, queue *sqs.CreateQueueOutput)
     return expectedMsg
 }
 
-func getNumOfVisibleMessagesInQueue(t *testing.T, consumer *Consumer, queue *sqs.CreateQueueOutput) int {
-    return getQueueAttribute(t, consumer, queue, "ApproximateNumberOfMessages")
+func getNumOfVisibleMessagesInQueue(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl *string) int {
+    return getQueueAttribute(t, ctx, consumer, queueUrl, "ApproximateNumberOfMessages")
 }
 
-func getNumOfNotVisibleMessagesInQueue(t *testing.T, consumer *Consumer, queue *sqs.CreateQueueOutput) int {
-    return getQueueAttribute(t, consumer, queue, "ApproximateNumberOfMessagesNotVisible")
+func getNumOfNotVisibleMessagesInQueue(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl *string) int {
+    return getQueueAttribute(t, ctx, consumer, queueUrl, "ApproximateNumberOfMessagesNotVisible")
 }
 
-func getQueueAttribute(t *testing.T, consumer *Consumer, queue *sqs.CreateQueueOutput, attributeName string) int {
-    attributes, err := consumer.SQS.GetQueueAttributes(&sqs.GetQueueAttributesInput{
-        QueueUrl:       queue.QueueUrl,
-        AttributeNames: []*string{aws.String(attributeName)},
+func getQueueAttribute(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl *string, attributeName string) int {
+    attributes, err := consumer.sqs.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+        QueueUrl:       queueUrl,
+        AttributeNames: []types.QueueAttributeName{types.QueueAttributeName(attributeName)},
     })
     if err != nil {
         log.Error("error retrieving queue attributes")
         t.FailNow()
     }
-    messageCount, err := strconv.Atoi(*attributes.Attributes[attributeName])
+    messageCount, err := strconv.Atoi(attributes.Attributes[attributeName])
     if err != nil {
         log.Error("error converting string to int")
     }
     return messageCount
+}
+
+func loadAWSDefaultConfig(ctx context.Context, ) aws.Config {
+    options := []func(*aws_config.LoadOptions) error{
+        aws_config.WithRegion(awsRegion),
+    }
+
+    awsEndpoint, found := os.LookupEnv("AWS_ENDPOINT")
+    if !found {
+        awsEndpoint = localAwsEndpoint
+    }
+
+    endpointResolver := aws_config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(func(_, _ string, _ ...interface{}) (aws.Endpoint, error) {
+        return aws.Endpoint{
+            URL:               awsEndpoint,
+            PartitionID:       "aws",
+            SigningRegion:     awsRegion,
+            HostnameImmutable: true,
+        }, nil
+    }))
+    options = append(options, endpointResolver)
+    options = append(options, aws_config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("aws", "aws", "aws")))
+
+    awsCfg, err := aws_config.LoadDefaultConfig(ctx, options...)
+    if err != nil {
+        log.Fatalf("unable to load AWS SDK config, %v", err)
+    }
+    return awsCfg
 }

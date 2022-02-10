@@ -3,15 +3,18 @@ on: [push]
 
 env:
   DEBIAN_FRONTEND: noninteractive
-  QUEUE_HOST: elasticmq:9324
+  AWS_ENDPOINT: http://localstack:4566
 
 jobs:
   test:
     runs-on: ubuntu-latest
     container: golang:1.17.1-alpine3.14
     services:
-      elasticmq:
-        image: softwaremill/elasticmq-native:1.2.3
+      localstack:
+        image: localstack/localstack:latest
+        env:
+          SERVICES: sqs
+          DEFAULT_REGION: us-east-1
     steps:
       - name: Check out repository code
         uses: actions/checkout@v2

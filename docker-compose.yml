@@ -1,7 +1,10 @@
 version: "2.1"
 
 services:
-  elasticmq:
-    image: softwaremill/elasticmq-native:1.2.3
+  localstack:
+    image: localstack/localstack
     ports:
-      - "127.0.0.1:9324:9324"
+      - "127.0.0.1:4566:4566"
+    environment:
+      - SERVICES=sqs
+      - DEFAULT_REGION=us-east-1

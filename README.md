@@ -1,46 +1,34 @@
 ### SQS Client
 
-This library implements a SQS consumer able to retry messages and extend their visibility timeout.
+This library implements a SQS consumer.
 
-The library exposes a configuration struct ([sqs.Config](./pkg/consumer.go)) that can be used to setup the consumer correctly.
-
-In order to use the library in tests, the `DisableSSL` config needs to be set to true and the correct `QueueHost` needs to be passed.
-The value of the host could depend on the environment where the tests run (e.g. local or CI).
-
-The library accepts an instance of [Handler](./pkg/handler.go) that will be called to handle incoming messages.
+The library accepts the following parameters in the constructor:
+* `ctx`: the context of the caller
+* `cfg`: an instance of aws sdk v2 configs
+* `queueName`: the SQS queue name
+* `visibilityTimeout`: visibility timeout (in seconds) applied to every message pulled from the queue
+* `batchSize`: number of messages retrieved at each SQS poll
+* `workersNum`: size of the workers pool
+* `handler`: instance of the [Handler](./pkg/handler.go) interface that will be called for every message received
 
 Example of usage:
 ```go
+type MsgHandler struct {}
 
-conf := Config{
-    AwsAccessKey:      "sqs",
-    AwsSecretKey:      "sqs",
-    AwsRegion:         "us-east-1",
-    QueueHost:         "http://localhost:9324",
-    WorkerPool:        1,
-    VisibilityTimeout: 15,
-    DisableSSL:        true,
-}
-
-queueName := "test_queue"
-
-queue, err := CreateQueue(conf, queueName)
-if err != nil {
-    log.Error("error while creating queue")
-    t.FailNow()
-}
-
-consumer, err := NewConsumer(conf, queueName)
-if err != nil {
-    log.Error("error while creating consumer")
-    t.FailNow()
-}
-
-handler := func(ctx context.Context, m *Message) error {
-    // Handle message
+func (m *MsgHandler) Run(ctx context.Context, msg *Message) error {
+    // Do something with msg
     return nil
 }
 
-consumer.RegisterHandler(handler)
-go consumer.Consume()
+func setupSQSConsumer(){
+    visibilityTimeout := 20
+    batchSize := 10
+    workersNum := 10
+    consumer, err := NewConsumer(ctx, awsCfg, queueName, visibilityTimeout, batchSize, workersNum, MsgHandler{})
+    if err != nil {
+        log.Error("error while creating consumer")
+    }
+    
+    go consumer.Consume()
+}
 ```
