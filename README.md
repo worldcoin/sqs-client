@@ -2,10 +2,9 @@
 
 This library implements a SQS consumer.
 
-The library accepts the following parameters in the constructor:
-* `ctx`: the context of the caller
+The constructor accepts the following parameters:
 * `cfg`: an instance of aws sdk v2 configs
-* `queueName`: the SQS queue name
+* `queueURL`: the URL of the SQS queue
 * `visibilityTimeout`: visibility timeout (in seconds) applied to every message pulled from the queue
 * `batchSize`: number of messages retrieved at each SQS poll
 * `workersNum`: size of the workers pool
@@ -21,15 +20,14 @@ func (m *MsgHandler) Run(ctx context.Context, msg *Message) error {
 }
 
 func setupSQSConsumer(){
+    ctx := context.WithCancel(context.Background())
+    queueURL := "https://..."
     visibilityTimeout := 20
     batchSize := 10
     workersNum := 10
-    consumer, err := NewConsumer(ctx, awsCfg, queueName, visibilityTimeout, batchSize, workersNum, MsgHandler{})
-    if err != nil {
-        log.Error("error while creating consumer")
-    }
+    consumer := NewConsumer(awsCfg, queueURL,  queueName, visibilityTimeout, batchSize, workersNum, MsgHandler{})
     
-    go consumer.Consume()
+    go consumer.Consume(ctx)
 }
 ```
 
