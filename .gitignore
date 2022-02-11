@@ -23,7 +23,3 @@ temp/*
 # Log files
 logs/*
 *.log
-
-# compiled binary
-orbserver
-vorb/virtualorb
