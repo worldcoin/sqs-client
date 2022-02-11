@@ -21,25 +21,18 @@ type Consumer struct {
     wg                *sync.WaitGroup
 }
 
-func NewConsumer(ctx context.Context, cfg aws.Config, queueName string, visibilityTimeout, batchSize, workersNum int, handler Handler) (*Consumer, error) {
-    cons := &Consumer{
+func NewConsumer(cfg aws.Config, queueURL string, visibilityTimeout, batchSize, workersNum int, handler Handler) *Consumer {
+    consumer := &Consumer{
         sqs:               sqs.NewFromConfig(cfg),
         handler:           handler,
+        queueURL:          queueURL,
         workersNum:        workersNum,
         visibilityTimeout: int32(visibilityTimeout),
         batchSize:         int32(batchSize),
         wg:                &sync.WaitGroup{},
     }
 
-    queueUrlOut, err := cons.sqs.GetQueueUrl(ctx, &sqs.GetQueueUrlInput{
-        QueueName: aws.String(queueName),
-    })
-    if err != nil {
-        return nil, err
-    }
-    cons.queueURL = *queueUrlOut.QueueUrl
-
-    return cons, nil
+    return consumer
 }
 
 func (c *Consumer) Consume(ctx context.Context) {
