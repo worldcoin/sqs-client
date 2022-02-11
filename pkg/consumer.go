@@ -4,7 +4,6 @@ import (
     "context"
     "fmt"
     "sync"
-    "time"
 
     "github.com/aws/aws-sdk-go-v2/aws"
     "github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -16,39 +15,37 @@ type Consumer struct {
     sqs               *sqs.Client
     handler           Handler
     queueURL          string
-    workerPool        int
+    workersNum        int
     visibilityTimeout int32
     batchSize         int32
     wg                *sync.WaitGroup
 }
 
 func NewConsumer(ctx context.Context, cfg aws.Config, queueName string, visibilityTimeout, batchSize, workersNum int, handler Handler) (*Consumer, error) {
-    sqsSvc := sqs.NewFromConfig(cfg)
-
     cons := &Consumer{
-        sqs:               sqsSvc,
+        sqs:               sqs.NewFromConfig(cfg),
         handler:           handler,
-        workerPool:        workersNum,
+        workersNum:        workersNum,
         visibilityTimeout: int32(visibilityTimeout),
         batchSize:         int32(batchSize),
         wg:                &sync.WaitGroup{},
     }
 
-    o, err := cons.sqs.GetQueueUrl(ctx, &sqs.GetQueueUrlInput{
+    queueUrlOut, err := cons.sqs.GetQueueUrl(ctx, &sqs.GetQueueUrlInput{
         QueueName: aws.String(queueName),
     })
     if err != nil {
         return nil, err
     }
-    cons.queueURL = *o.QueueUrl
+    cons.queueURL = *queueUrlOut.QueueUrl
 
     return cons, nil
 }
 
 func (c *Consumer) Consume(ctx context.Context) {
     jobs := make(chan *Message)
-    for w := 1; w <= c.workerPool; w++ {
-        go c.worker(ctx, jobs, c.wg)
+    for w := 1; w <= c.workersNum; w++ {
+        go c.worker(ctx, jobs)
         c.wg.Add(1)
     }
 
@@ -56,15 +53,16 @@ loop:
     for {
         select {
         case <-ctx.Done():
+            close(jobs)
             break loop
         default:
             output, err := c.sqs.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
                 QueueUrl:            &c.queueURL,
                 MaxNumberOfMessages: c.batchSize,
+                WaitTimeSeconds:     int32(5),
             })
             if err != nil {
                 log.WithError(err).Error("could not receive messages from SQS")
-                time.Sleep(10 * time.Second)
                 continue
             }
 
@@ -77,22 +75,16 @@ loop:
     c.wg.Wait()
 }
 
-func (c *Consumer) worker(ctx context.Context, messages <-chan *Message, wg *sync.WaitGroup) {
-loop:
+func (c *Consumer) worker(ctx context.Context, messages <-chan *Message) {
     for m := range messages {
-        select {
-        case <-ctx.Done():
-            break loop
-        default:
-            if err := c.run(ctx, m); err != nil {
-                log.WithError(err).Error("error running handlers")
-            }
+        if err := c.handleMsg(ctx, m); err != nil {
+            log.WithError(err).Error("error running handlers")
         }
-        wg.Done()
     }
+    c.wg.Done()
 }
 
-func (c *Consumer) run(ctx context.Context, m *Message) error {
+func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
     if c.handler != nil {
         c.extend(ctx, m)
         if err := c.handler.Run(ctx, m); err != nil {

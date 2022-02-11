@@ -32,3 +32,6 @@ func setupSQSConsumer(){
     go consumer.Consume()
 }
 ```
+
+The library supports graceful shutdown. If the caller `ctx` is cancelled, the consumer will shutdown and the 
+`consumer.Consume()` method will return.

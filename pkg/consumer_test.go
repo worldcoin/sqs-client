@@ -20,8 +20,11 @@ import (
 )
 
 const (
-    awsRegion        = "us-east-1"
-    localAwsEndpoint = "http://localhost:4566"
+    awsRegion         = "us-east-1"
+    localAwsEndpoint  = "http://localhost:4566"
+    visibilityTimeout = 20
+    batchSize         = 10
+    workersNum        = 1
 )
 
 type TestMsg struct {
@@ -44,7 +47,7 @@ func TestConsume(t *testing.T) {
     expectedMsg := TestMsg{Name: "TestName"}
 
     msgHandler := handler(t, expectedMsg)
-    consumer, err := NewConsumer(ctx, awsCfg, queueName, 20, 10, 1, msgHandler)
+    consumer, err := NewConsumer(ctx, awsCfg, queueName, visibilityTimeout, batchSize, workersNum, msgHandler)
     if err != nil {
         log.Error("error while creating consumer")
         t.FailNow()
@@ -76,6 +79,46 @@ func TestConsume(t *testing.T) {
     assert.Equal(t, 0, messageCount)
 }
 
+func TestConsume_GracefulShutdown(t *testing.T) {
+    ctx, cancel := context.WithCancel(context.Background())
+    awsCfg := loadAWSDefaultConfig(ctx)
+
+    queueName := strings.ToLower(t.Name())
+    createQueue(t, ctx, awsCfg, queueName)
+
+    consumer, err := NewConsumer(ctx, awsCfg, queueName, visibilityTimeout, batchSize, workersNum, &MsgHandler{})
+    if err != nil {
+        log.Error("error while creating consumer")
+        t.FailNow()
+    }
+    go func() {
+        time.Sleep(time.Second * 1)
+        // Cancel context to trigger graceful shutdown
+        cancel()
+    }()
+    go func() {
+        // Fail the test if the consumer doesn't shut down after 5 secs
+        time.Sleep(time.Second * 5)
+        log.Error("consumer didn't shut down")
+        os.Exit(1)
+    }()
+    consumer.Consume(ctx)
+}
+
+func createQueue(t *testing.T, ctx context.Context, awsCfg aws.Config, queueName string) *string {
+    sqsSvc := sqs.NewFromConfig(awsCfg)
+
+    queue, err := sqsSvc.CreateQueue(ctx, &sqs.CreateQueueInput{
+        QueueName: aws.String(queueName),
+    })
+    if err != nil {
+        log.WithError(err).Error("error while creating queue")
+        t.FailNow()
+    }
+
+    return queue.QueueUrl
+}
+
 func handler(t *testing.T, expectedMsg TestMsg) *MsgHandler {
     return &MsgHandler{
         t:                 t,
@@ -97,20 +140,6 @@ func (m *MsgHandler) Run(ctx context.Context, msg *Message) error {
     assert.Equal(m.t, m.expectedMsg, actualMsg)
 
     return err
-}
-
-func createQueue(t *testing.T, ctx context.Context, awsCfg aws.Config, queueName string) *string {
-    sqsSvc := sqs.NewFromConfig(awsCfg)
-
-    queue, err := sqsSvc.CreateQueue(ctx, &sqs.CreateQueueInput{
-        QueueName: aws.String(queueName),
-    })
-    if err != nil {
-        log.WithError(err).Error("error while creating queue")
-        t.FailNow()
-    }
-
-    return queue.QueueUrl
 }
 
 func sendTestMsg(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl *string, expectedMsg TestMsg) TestMsg {
