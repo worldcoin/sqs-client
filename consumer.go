@@ -28,7 +28,7 @@ func NewConsumer(ctx context.Context, cfg aws.Config, queueName string, visibili
 		QueueName: aws.String(queueName),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error getting queueUrl")
+		panic("can't get queue url")
 	}
 
 	consumer := &Consumer{
