@@ -1,4 +1,4 @@
-module github.com/worldcoin/sqs-commons
+module github.com/worldcoin/sqs-client
 
 go 1.17
 
