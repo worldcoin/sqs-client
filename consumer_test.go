@@ -47,7 +47,8 @@ func TestConsume(t *testing.T) {
 	expectedMsg := TestMsg{Name: "TestName"}
 
 	msgHandler := handler(t, expectedMsg)
-	consumer := NewConsumer(awsCfg, *queueUrl, visibilityTimeout, batchSize, workersNum, msgHandler)
+	consumer, err := NewConsumer(ctx, awsCfg, queueName, visibilityTimeout, batchSize, workersNum, msgHandler)
+	assert.Nil(t, err)
 	go consumer.Consume(ctx)
 
 	t.Cleanup(func() {
@@ -80,9 +81,10 @@ func TestConsume_GracefulShutdown(t *testing.T) {
 	awsCfg := loadAWSDefaultConfig(ctx)
 
 	queueName := strings.ToLower(t.Name())
-	queueUrl := createQueue(t, ctx, awsCfg, queueName)
+	createQueue(t, ctx, awsCfg, queueName)
 
-	consumer := NewConsumer(awsCfg, *queueUrl, visibilityTimeout, batchSize, workersNum, &MsgHandler{})
+	consumer, err := NewConsumer(ctx, awsCfg, queueName, visibilityTimeout, batchSize, workersNum, &MsgHandler{})
+	assert.Nil(t, err)
 	go func() {
 		time.Sleep(time.Second * 1)
 		// Cancel context to trigger graceful shutdown
