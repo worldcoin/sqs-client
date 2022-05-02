@@ -46,6 +46,7 @@ loop:
 	for {
 		select {
 		case <-ctx.Done():
+			log.Info("closing jobs channel")
 			close(jobs)
 			break loop
 		default:
@@ -74,6 +75,7 @@ func (c *Consumer) worker(ctx context.Context, messages <-chan *Message) {
 			log.WithError(err).Error("error running handlers")
 		}
 	}
+	log.Info("worker exiting")
 	c.wg.Done()
 }
 
@@ -95,6 +97,7 @@ func (c *Consumer) delete(ctx context.Context, m *Message) error {
 		log.WithError(err).Error("error removing message")
 		return fmt.Errorf("unable to delete message from the queue: %w", err)
 	}
+	log.Info("message deleted")
 	return nil
 }
 
