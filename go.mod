@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.8.0
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.18.4
 	github.com/sirupsen/logrus v1.8.1
-	github.com/stretchr/testify v1.7.0
+	github.com/stretchr/testify v1.7.1
 	gopkg.in/DataDog/dd-trace-go.v1 v1.38.1
 )
 
