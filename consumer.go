@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -16,20 +17,22 @@ type Consumer struct {
 	sqs               *sqs.Client
 	handler           Handler
 	queueURL          string
-	workersNum        int
 	visibilityTimeout int32
 	batchSize         int32
+	workersNum        int
+	handlerTimeout    int
 	wg                *sync.WaitGroup
 }
 
-func NewConsumer(cfg aws.Config, queueURL string, visibilityTimeout, batchSize, workersNum int, handler Handler) *Consumer {
+func NewConsumer(cfg aws.Config, queueURL string, visibilityTimeout, batchSize, workersNum, handlerTimeout int, handler Handler) *Consumer {
 	consumer := &Consumer{
 		sqs:               sqs.NewFromConfig(cfg),
 		handler:           handler,
 		queueURL:          queueURL,
-		workersNum:        workersNum,
 		visibilityTimeout: int32(visibilityTimeout),
 		batchSize:         int32(batchSize),
+		workersNum:        workersNum,
+		handlerTimeout:    handlerTimeout,
 		wg:                &sync.WaitGroup{},
 	}
 
@@ -91,15 +94,30 @@ func (c *Consumer) handleMsg(ctx context.Context, m *Message, workerId int) erro
 	span.SetTag("worker_id", workerId)
 	defer span.Finish()
 
-	c.extend(ctx, m)
-	if err := c.handler.Run(ctx, m); err != nil {
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, time.Duration(c.handlerTimeout)*time.Second)
+	defer cancel()
+
+	go func() {
+		select {
+		case <-ctxWithTimeout.Done():
+			if ctxWithTimeout.Err() != nil && ctxWithTimeout.Err() == context.DeadlineExceeded {
+				log.WithError(ctxWithTimeout.Err()).Error("SQS message handler timed out")
+			} else {
+				log.Info("SQS message handler completed")
+			}
+			break
+		}
+	}()
+
+	c.extend(ctxWithTimeout, m)
+	if err := c.handler.Run(ctxWithTimeout, m); err != nil {
 		span.SetTag("success", false)
 		span.SetTag("error", err)
 		return m.ErrorResponse(err)
 	}
 	m.Success()
 
-	err := c.delete(ctx, m)
+	err := c.delete(ctxWithTimeout, m)
 	if err != nil {
 		span.SetTag("success", false)
 		span.SetTag("error", err)
@@ -111,7 +129,7 @@ func (c *Consumer) handleMsg(ctx context.Context, m *Message, workerId int) erro
 }
 
 func (c *Consumer) delete(ctx context.Context, m *Message) error {
-	span, ctx:= tracer.StartSpanFromContext(ctx, "sqs_client.delete_msg")
+	span, ctx := tracer.StartSpanFromContext(ctx, "sqs_client.delete_msg")
 	defer span.Finish()
 	log.WithFields(TraceFields(ctx)).Info("deleting message from SQS")
 	_, err := c.sqs.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: &c.queueURL, ReceiptHandle: m.ReceiptHandle})
