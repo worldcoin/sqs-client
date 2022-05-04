@@ -24,6 +24,7 @@ const (
 	localAwsEndpoint  = "http://localhost:4566"
 	visibilityTimeout = 20
 	batchSize         = 10
+	handlerTimeout    = 10
 	workersNum        = 1
 )
 
@@ -47,7 +48,7 @@ func TestConsume(t *testing.T) {
 	expectedMsg := TestMsg{Name: "TestName"}
 
 	msgHandler := handler(t, expectedMsg)
-	consumer := NewConsumer(awsCfg, *queueUrl, visibilityTimeout, batchSize, workersNum, msgHandler)
+	consumer := NewConsumer(awsCfg, *queueUrl, visibilityTimeout, batchSize, workersNum, handlerTimeout, msgHandler)
 	go consumer.Consume(ctx)
 
 	t.Cleanup(func() {
@@ -82,7 +83,7 @@ func TestConsume_GracefulShutdown(t *testing.T) {
 	queueName := strings.ToLower(t.Name())
 	queueUrl := createQueue(t, ctx, awsCfg, queueName)
 
-	consumer := NewConsumer(awsCfg, *queueUrl, visibilityTimeout, batchSize, workersNum, &MsgHandler{})
+	consumer := NewConsumer(awsCfg, *queueUrl, visibilityTimeout, batchSize, workersNum, handlerTimeout, &MsgHandler{})
 	go func() {
 		time.Sleep(time.Second * 1)
 		// Cancel context to trigger graceful shutdown
