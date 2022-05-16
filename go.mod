@@ -4,8 +4,8 @@ go 1.17
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.16.3
-	github.com/aws/aws-sdk-go-v2/config v1.13.1
-	github.com/aws/aws-sdk-go-v2/credentials v1.8.0
+	github.com/aws/aws-sdk-go-v2/config v1.15.5
+	github.com/aws/aws-sdk-go-v2/credentials v1.12.0
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.18.4
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.7.0
@@ -18,13 +18,13 @@ require (
 	github.com/DataDog/datadog-go/v5 v5.0.2 // indirect
 	github.com/DataDog/sketches-go v1.0.0 // indirect
 	github.com/Microsoft/go-winio v0.5.1 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.10.0 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.12.4 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.10 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.4.4 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/ini v1.3.5 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.7.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.9.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.14.0 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/ini v1.3.11 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.9.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.11.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.16.4 // indirect
 	github.com/aws/smithy-go v1.11.2 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
