@@ -7,7 +7,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -37,9 +36,9 @@ func NewConsumer(cfg aws.Config, queueURL string, visibilityTimeout, batchSize, 
 }
 
 func (c *Consumer) Consume(ctx context.Context) {
-	jobs := make(chan *Message, c.workersNum)
+	jobs := make(chan *Message)
 	for w := 1; w <= c.workersNum; w++ {
-		go c.worker(ctx, jobs, w)
+		go c.worker(ctx, jobs)
 		c.wg.Add(1)
 	}
 
@@ -56,12 +55,6 @@ loop:
 				MaxNumberOfMessages: c.batchSize,
 				WaitTimeSeconds:     int32(5),
 			})
-
-			if output != nil {
-				log.Infof("SQS Client received %d messages", len(output.Messages))
-			} else {
-				log.Info("No messages received")
-			}
 			if err != nil {
 				log.WithError(err).Error("could not receive messages from SQS")
 				continue
@@ -76,9 +69,9 @@ loop:
 	c.wg.Wait()
 }
 
-func (c *Consumer) worker(ctx context.Context, messages <-chan *Message, workerId int) {
+func (c *Consumer) worker(ctx context.Context, messages <-chan *Message) {
 	for m := range messages {
-		if err := c.handleMsg(ctx, m, workerId); err != nil {
+		if err := c.handleMsg(ctx, m); err != nil {
 			log.WithError(err).Error("error running handlers")
 		}
 	}
@@ -86,43 +79,25 @@ func (c *Consumer) worker(ctx context.Context, messages <-chan *Message, workerI
 	c.wg.Done()
 }
 
-func (c *Consumer) handleMsg(ctx context.Context, m *Message, workerId int) error {
-	span, ctx := tracer.StartSpanFromContext(ctx, "sqs_client.handle_msg")
-	span.SetTag("worker_id", workerId)
-	defer span.Finish()
-
-	c.extend(ctx, m)
-	if err := c.handler.Run(ctx, m); err != nil {
-		span.SetTag("success", false)
-		span.SetTag("error", err)
-		return m.ErrorResponse(err)
-	}
-	m.Success()
-
-	err := c.delete(ctx, m)
-	if err != nil {
-		span.SetTag("success", false)
-		span.SetTag("error", err)
-		return err
+func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
+	if c.handler != nil {
+		c.extend(ctx, m)
+		if err := c.handler.Run(ctx, m); err != nil {
+			return m.ErrorResponse(err)
+		}
+		m.Success()
 	}
 
-	span.SetTag("success", true)
-	return nil
+	return c.delete(ctx, m) //MESSAGE CONSUMED
 }
 
 func (c *Consumer) delete(ctx context.Context, m *Message) error {
-	span, ctx:= tracer.StartSpanFromContext(ctx, "sqs_client.delete_msg")
-	defer span.Finish()
-	log.WithFields(TraceFields(ctx)).Info("deleting message from SQS")
 	_, err := c.sqs.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: &c.queueURL, ReceiptHandle: m.ReceiptHandle})
 	if err != nil {
-		log.WithFields(TraceFields(ctx)).WithError(err).Error("error removing message")
-		span.SetTag("deleted", false)
-		span.SetTag("error", err)
+		log.WithError(err).Error("error removing message")
 		return fmt.Errorf("unable to delete message from the queue: %w", err)
 	}
-	span.SetTag("deleted", true)
-	log.WithFields(TraceFields(ctx)).Info("message deleted")
+	log.Info("message deleted")
 	return nil
 }
 
@@ -133,14 +108,7 @@ func (c *Consumer) extend(ctx context.Context, m *Message) {
 		VisibilityTimeout: c.visibilityTimeout,
 	})
 	if err != nil {
-		log.WithFields(TraceFields(ctx)).WithError(err).Error("unable to extend message")
+		log.WithError(err).Error("unable to extend message")
 		return
 	}
-}
-
-func TraceFields(ctx context.Context) log.Fields {
-	if span, ok := tracer.SpanFromContext(ctx); ok {
-		return log.Fields{"dd.trace_id": span.Context().TraceID(), "dd.span_id": span.Context().SpanID()}
-	}
-	return log.Fields{}
 }
