@@ -11,33 +11,33 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type Consumer struct {
-	sqs               *sqs.Client
-	handler           Handler
-	queueURL          string
-	workersNum        int
-	visibilityTimeout int32
-	batchSize         int32
-	wg                *sync.WaitGroup
+type Config struct {
+	QueueURL          string
+	WorkersNum        int
+	VisibilityTimeout int32
+	BatchSize         int32
+	ExtendEnabled     bool
 }
 
-func NewConsumer(cfg aws.Config, queueURL string, visibilityTimeout, batchSize, workersNum int, handler Handler) *Consumer {
-	consumer := &Consumer{
-		sqs:               sqs.NewFromConfig(cfg),
-		handler:           handler,
-		queueURL:          queueURL,
-		workersNum:        workersNum,
-		visibilityTimeout: int32(visibilityTimeout),
-		batchSize:         int32(batchSize),
-		wg:                &sync.WaitGroup{},
-	}
+type Consumer struct {
+	sqs     *sqs.Client
+	handler Handler
+	wg      *sync.WaitGroup
+	cfg     Config
+}
 
-	return consumer
+func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) *Consumer {
+	return &Consumer{
+		sqs:     sqs.NewFromConfig(awsCfg),
+		handler: handler,
+		wg:      &sync.WaitGroup{},
+		cfg:     cfg,
+	}
 }
 
 func (c *Consumer) Consume(ctx context.Context) {
 	jobs := make(chan *Message)
-	for w := 1; w <= c.workersNum; w++ {
+	for w := 1; w <= c.cfg.WorkersNum; w++ {
 		go c.worker(ctx, jobs)
 		c.wg.Add(1)
 	}
@@ -51,8 +51,8 @@ loop:
 			break loop
 		default:
 			output, err := c.sqs.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-				QueueUrl:            &c.queueURL,
-				MaxNumberOfMessages: c.batchSize,
+				QueueUrl:            &c.cfg.QueueURL,
+				MaxNumberOfMessages: c.cfg.BatchSize,
 				WaitTimeSeconds:     int32(5),
 			})
 			if err != nil {
@@ -81,7 +81,9 @@ func (c *Consumer) worker(ctx context.Context, messages <-chan *Message) {
 
 func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
 	if c.handler != nil {
-		c.extend(ctx, m)
+		if c.cfg.ExtendEnabled {
+			c.extend(ctx, m)
+		}
 		if err := c.handler.Run(ctx, m); err != nil {
 			return m.ErrorResponse(err)
 		}
@@ -92,7 +94,7 @@ func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
 }
 
 func (c *Consumer) delete(ctx context.Context, m *Message) error {
-	_, err := c.sqs.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: &c.queueURL, ReceiptHandle: m.ReceiptHandle})
+	_, err := c.sqs.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: &c.cfg.QueueURL, ReceiptHandle: m.ReceiptHandle})
 	if err != nil {
 		log.WithError(err).Error("error removing message")
 		return fmt.Errorf("unable to delete message from the queue: %w", err)
@@ -103,9 +105,9 @@ func (c *Consumer) delete(ctx context.Context, m *Message) error {
 
 func (c *Consumer) extend(ctx context.Context, m *Message) {
 	_, err := c.sqs.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
-		QueueUrl:          &c.queueURL,
+		QueueUrl:          &c.cfg.QueueURL,
 		ReceiptHandle:     m.ReceiptHandle,
-		VisibilityTimeout: c.visibilityTimeout,
+		VisibilityTimeout: c.cfg.VisibilityTimeout,
 	})
 	if err != nil {
 		log.WithError(err).Error("unable to extend message")
