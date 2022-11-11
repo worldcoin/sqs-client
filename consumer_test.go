@@ -32,9 +32,10 @@ type TestMsg struct {
 }
 
 type MsgHandler struct {
-	t                 *testing.T
-	msgsReceivedCount int
-	expectedMsg       TestMsg
+	t                     *testing.T
+	msgsReceivedCount     int
+	expectedMsg           TestMsg
+	expectedMsgAttributes interface{}
 }
 
 func TestConsume(t *testing.T) {
@@ -45,8 +46,14 @@ func TestConsume(t *testing.T) {
 	queueUrl := createQueue(t, ctx, awsCfg, queueName)
 
 	expectedMsg := TestMsg{Name: "TestName"}
+	expectedMsgAttributes := map[string]types.MessageAttributeValue{
+		"key1": {
+			DataType:    aws.String("String"),
+			StringValue: aws.String("1234"),
+		},
+	}
 
-	msgHandler := handler(t, expectedMsg)
+	msgHandler := handler(t, expectedMsg, expectedMsgAttributes)
 	config := Config{
 		QueueURL:          *queueUrl,
 		WorkersNum:        workersNum,
@@ -125,11 +132,12 @@ func createQueue(t *testing.T, ctx context.Context, awsCfg aws.Config, queueName
 	return queue.QueueUrl
 }
 
-func handler(t *testing.T, expectedMsg TestMsg) *MsgHandler {
+func handler(t *testing.T, expectedMsg TestMsg, expectedMsgAttributes map[string]types.MessageAttributeValue) *MsgHandler {
 	return &MsgHandler{
-		t:                 t,
-		msgsReceivedCount: 0,
-		expectedMsg:       expectedMsg,
+		t:                     t,
+		msgsReceivedCount:     0,
+		expectedMsg:           expectedMsg,
+		expectedMsgAttributes: expectedMsgAttributes,
 	}
 }
 
@@ -142,6 +150,8 @@ func (m *MsgHandler) Run(ctx context.Context, msg *Message) error {
 		m.t.FailNow()
 	}
 
+	assert.EqualValues(m.t, m.expectedMsgAttributes, msg.MessageAttributes)
+
 	// Check that the message received is the expected one
 	assert.Equal(m.t, m.expectedMsg, actualMsg)
 
@@ -153,6 +163,12 @@ func sendTestMsg(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl
 	_, err = consumer.sqs.SendMessage(ctx, &sqs.SendMessageInput{
 		MessageBody: aws.String(string(messageBodyBytes)),
 		QueueUrl:    queueUrl,
+		MessageAttributes: map[string]types.MessageAttributeValue{
+			"key1": {
+				DataType:    aws.String("String"),
+				StringValue: aws.String("1234"),
+			},
+		},
 	})
 	if err != nil {
 		log.Error("error sending message")

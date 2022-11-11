@@ -51,9 +51,10 @@ loop:
 			break loop
 		default:
 			output, err := c.sqs.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-				QueueUrl:            &c.cfg.QueueURL,
-				MaxNumberOfMessages: c.cfg.BatchSize,
-				WaitTimeSeconds:     int32(5),
+				QueueUrl:              &c.cfg.QueueURL,
+				MaxNumberOfMessages:   c.cfg.BatchSize,
+				WaitTimeSeconds:       int32(5),
+				MessageAttributeNames: []string{"All"},
 			})
 			if err != nil {
 				log.WithError(err).Error("could not receive messages from SQS")
