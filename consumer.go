@@ -54,7 +54,7 @@ loop:
 				QueueUrl:              &c.cfg.QueueURL,
 				MaxNumberOfMessages:   c.cfg.BatchSize,
 				WaitTimeSeconds:       int32(5),
-				MessageAttributeNames: []string{"All"},
+				MessageAttributeNames: []string{"TraceID", "SpanID"},
 			})
 			if err != nil {
 				log.WithError(err).Error("could not receive messages from SQS")

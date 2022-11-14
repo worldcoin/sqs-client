@@ -25,6 +25,8 @@ const (
 	visibilityTimeout = 20
 	batchSize         = 10
 	workersNum        = 1
+	traceId           = "traceid123"
+	spanId            = "spanid123"
 )
 
 type TestMsg struct {
@@ -47,9 +49,13 @@ func TestConsume(t *testing.T) {
 
 	expectedMsg := TestMsg{Name: "TestName"}
 	expectedMsgAttributes := map[string]types.MessageAttributeValue{
-		"key1": {
+		"TraceID": {
 			DataType:    aws.String("String"),
-			StringValue: aws.String("1234"),
+			StringValue: aws.String(traceId),
+		},
+		"SpanID": {
+			DataType:    aws.String("String"),
+			StringValue: aws.String(spanId),
 		},
 	}
 
@@ -164,14 +170,18 @@ func sendTestMsg(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl
 		MessageBody: aws.String(string(messageBodyBytes)),
 		QueueUrl:    queueUrl,
 		MessageAttributes: map[string]types.MessageAttributeValue{
-			"key1": {
+			"TraceID": {
 				DataType:    aws.String("String"),
-				StringValue: aws.String("1234"),
+				StringValue: aws.String(traceId),
+			},
+			"SpanID": {
+				DataType:    aws.String("String"),
+				StringValue: aws.String(spanId),
 			},
 		},
 	})
 	if err != nil {
-		log.Error("error sending message")
+		log.WithError(err).Error("error sending message")
 		t.FailNow()
 	}
 	return expectedMsg
