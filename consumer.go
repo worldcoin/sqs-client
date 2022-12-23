@@ -100,7 +100,7 @@ func (c *Consumer) delete(ctx context.Context, m *Message) error {
 		log.WithError(err).Error("error removing message")
 		return fmt.Errorf("unable to delete message from the queue: %w", err)
 	}
-	log.Info("message deleted")
+	log.Debug("message deleted")
 	return nil
 }
 
