@@ -8,7 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 )
 
 type Config struct {
@@ -46,7 +46,7 @@ loop:
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info("closing jobs channel")
+			zap.S().Info("closing jobs channel")
 			close(jobs)
 			break loop
 		default:
@@ -57,7 +57,7 @@ loop:
 				MessageAttributeNames: []string{"TraceID", "SpanID"},
 			})
 			if err != nil {
-				log.WithError(err).Error("could not receive messages from SQS")
+				zap.S().With(zap.Error(err)).Error("could not receive messages from SQS")
 				continue
 			}
 
@@ -73,10 +73,10 @@ loop:
 func (c *Consumer) worker(ctx context.Context, messages <-chan *Message) {
 	for m := range messages {
 		if err := c.handleMsg(ctx, m); err != nil {
-			log.WithError(err).Error("error running handlers")
+			zap.S().With(zap.Error(err)).Error("error running handlers")
 		}
 	}
-	log.Info("worker exiting")
+	zap.S().Info("worker exiting")
 	c.wg.Done()
 }
 
@@ -97,10 +97,10 @@ func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
 func (c *Consumer) delete(ctx context.Context, m *Message) error {
 	_, err := c.sqs.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: &c.cfg.QueueURL, ReceiptHandle: m.ReceiptHandle})
 	if err != nil {
-		log.WithError(err).Error("error removing message")
+		zap.S().With(zap.Error(err)).Error("error removing message")
 		return fmt.Errorf("unable to delete message from the queue: %w", err)
 	}
-	log.Debug("message deleted")
+	zap.S().Debug("message deleted")
 	return nil
 }
 
@@ -111,7 +111,7 @@ func (c *Consumer) extend(ctx context.Context, m *Message) {
 		VisibilityTimeout: c.cfg.VisibilityTimeout,
 	})
 	if err != nil {
-		log.WithError(err).Error("unable to extend message")
+		zap.S().With(zap.Error(err)).Error("unable to extend message")
 		return
 	}
 }

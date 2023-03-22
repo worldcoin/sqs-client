@@ -3,6 +3,7 @@ package sqsclient
 import (
 	"context"
 	"encoding/json"
+	"go.uber.org/zap"
 	"os"
 	"strconv"
 	"strings"
@@ -15,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -73,7 +73,7 @@ func TestConsume(t *testing.T) {
 	t.Cleanup(func() {
 		_, err := consumer.sqs.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: queueUrl})
 		if err != nil {
-			log.Error("failed to purge queue")
+			zap.S().Error("failed to purge queue")
 			t.FailNow()
 		}
 		cancel()
@@ -118,7 +118,7 @@ func TestConsume_GracefulShutdown(t *testing.T) {
 	go func() {
 		// Fail the test if the consumer doesn't shut down after 5 secs
 		time.Sleep(time.Second * 5)
-		log.Error("consumer didn't shut down")
+		zap.S().Error("consumer didn't shut down")
 		os.Exit(1)
 	}()
 	consumer.Consume(ctx)
@@ -131,7 +131,7 @@ func createQueue(t *testing.T, ctx context.Context, awsCfg aws.Config, queueName
 		QueueName: aws.String(queueName),
 	})
 	if err != nil {
-		log.WithError(err).Error("error while creating queue")
+		zap.S().With(zap.Error(err)).Error("error while creating queue")
 		t.FailNow()
 	}
 
@@ -152,7 +152,7 @@ func (m *MsgHandler) Run(ctx context.Context, msg *Message) error {
 	var actualMsg TestMsg
 	err := json.Unmarshal(msg.body(), &actualMsg)
 	if err != nil {
-		log.Error("error unmarshalling message")
+		zap.S().Error("error unmarshalling message")
 		m.t.FailNow()
 	}
 
@@ -181,7 +181,7 @@ func sendTestMsg(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl
 		},
 	})
 	if err != nil {
-		log.WithError(err).Error("error sending message")
+		zap.S().With(zap.Error(err)).Error("error sending message")
 		t.FailNow()
 	}
 	return expectedMsg
@@ -201,12 +201,12 @@ func getQueueAttribute(t *testing.T, ctx context.Context, consumer *Consumer, qu
 		AttributeNames: []types.QueueAttributeName{types.QueueAttributeName(attributeName)},
 	})
 	if err != nil {
-		log.Error("error retrieving queue attributes")
+		zap.S().Error("error retrieving queue attributes")
 		t.FailNow()
 	}
 	messageCount, err := strconv.Atoi(attributes.Attributes[attributeName])
 	if err != nil {
-		log.Error("error converting string to int")
+		zap.S().Error("error converting string to int")
 	}
 	return messageCount
 }
@@ -234,7 +234,7 @@ func loadAWSDefaultConfig(ctx context.Context) aws.Config {
 
 	awsCfg, err := aws_config.LoadDefaultConfig(ctx, options...)
 	if err != nil {
-		log.Fatalf("unable to load AWS SDK config, %v", err)
+		zap.S().Fatalf("unable to load AWS SDK config, %v", err)
 	}
 	return awsCfg
 }
