@@ -25,7 +25,6 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v2
-      - run: echo "${{ secrets.GIT_HUB_TOKEN }}"
       - run: apk add git gcc musl-dev curl
       - run: go test ./...
   snyk-scan:
