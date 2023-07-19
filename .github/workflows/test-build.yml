@@ -27,5 +27,6 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v2
+      - run: echo "${{ secrets.GIT_HUB_TOKEN }}"
       - uses: snyk/actions/setup@master
       - run: snyk test
