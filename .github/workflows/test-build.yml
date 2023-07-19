@@ -4,6 +4,7 @@ on: [push]
 env:
   DEBIAN_FRONTEND: noninteractive
   AWS_ENDPOINT: http://localstack:4566
+  GITH_TONE: ${{secrets.GIT_HUB_TOKEN }}
 
 jobs:
   test:
@@ -18,6 +19,8 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v2
+      - run: echo $GITH_TONE
+      - run: echo "${{ secrets.GIT_HUB_TOKEN }}"
       - run: apk add git gcc musl-dev
       - run: go test ./...
   snyk-scan:
