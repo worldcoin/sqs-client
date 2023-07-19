@@ -1,12 +1,5 @@
 name: CI
-on:
-  push:
-    branches:
-      - '**'
-  pull_request:
-    types: [ opened,synchronize,reopened ]
-    branches:
-      - '**'
+on: [push]
 
 env:
   DEBIAN_FRONTEND: noninteractive
