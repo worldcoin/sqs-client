@@ -8,7 +8,7 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    container: golang:1.17.1-alpine3.14
+    container: golang:1.21.6-alpine3.19
     services:
       localstack:
         image: localstack/localstack:latest
