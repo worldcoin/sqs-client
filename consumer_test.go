@@ -38,6 +38,7 @@ type MsgHandler struct {
 	msgsReceivedCount     int
 	expectedMsg           TestMsg
 	expectedMsgAttributes interface{}
+	shutdownReceived      bool
 }
 
 func TestConsume(t *testing.T) {
@@ -109,7 +110,8 @@ func TestConsume_GracefulShutdown(t *testing.T) {
 		BatchSize:         batchSize,
 		ExtendEnabled:     true,
 	}
-	consumer := NewConsumer(awsCfg, config, &MsgHandler{})
+	msgHandler := MsgHandler{}
+	consumer := NewConsumer(awsCfg, config, &msgHandler)
 	go func() {
 		time.Sleep(time.Second * 1)
 		// Cancel context to trigger graceful shutdown
@@ -122,6 +124,11 @@ func TestConsume_GracefulShutdown(t *testing.T) {
 		os.Exit(1)
 	}()
 	consumer.Consume(ctx)
+
+	assert.Eventually(t, func() bool {
+		// Check that shutdown was called
+		return assert.Equal(t, true, msgHandler.shutdownReceived)
+	}, time.Second*2, time.Millisecond*100)
 }
 
 func createQueue(t *testing.T, ctx context.Context, awsCfg aws.Config, queueName string) *string {
@@ -162,6 +169,12 @@ func (m *MsgHandler) Run(ctx context.Context, msg *Message) error {
 	assert.Equal(m.t, m.expectedMsg, actualMsg)
 
 	return err
+}
+
+func (m *MsgHandler) Shutdown() {
+	zap.S().Info("Shutting down")
+	m.shutdownReceived = true
+	// Do nothing
 }
 
 func sendTestMsg(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl *string, expectedMsg TestMsg) TestMsg {

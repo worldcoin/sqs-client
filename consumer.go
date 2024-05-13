@@ -47,6 +47,7 @@ loop:
 		select {
 		case <-ctx.Done():
 			zap.S().Info("closing jobs channel")
+			c.handler.Shutdown()
 			close(jobs)
 			break loop
 		default:
