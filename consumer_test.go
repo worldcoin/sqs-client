@@ -47,7 +47,7 @@ type MsgHandler struct {
 }
 
 func TestConsume(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*1000)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	awsCfg := loadAWSDefaultConfig(ctx)
 
 	queueName := strings.ToLower(t.Name())
