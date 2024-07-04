@@ -6,7 +6,7 @@ env:
   AWS_ENDPOINT: http://localstack:4566
 
 jobs:
-  test:
+  test-and-format:
     runs-on: ubuntu-latest
     container: golang:1.21.6-alpine3.19
     services:
@@ -18,8 +18,49 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v4
-      - run: apk add git gcc musl-dev
+        with:
+          fetch-depth: 0  # Ensure full history is fetched for git commands
+      - run: apk add --no-cache git gcc musl-dev
+      - run: git config --global url."https://${{ secrets.GIT_HUB_TOKEN }}:x-oauth-basic@github.com/worldcoin/".insteadOf "https://github.com/worldcoin/"
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - run: go test ./...
+      - name: Run go fmt
+        run: |
+          go fmt ./...
+      - name: Add safe directory for Git
+        run: |
+          git config --global --add safe.directory $GITHUB_WORKSPACE
+          git config --global --get-all safe.directory
+      - name: Debug Checkout
+        run: |
+          echo "Debugging Checkout Step"
+          ls -al
+          cat .git/config || echo ".git/config not found"
+          git status || true
+      - name: Verify Checkout
+        run: |
+          pwd
+          ls -al
+          if [ -d .git ]; then echo ".git directory exists"; else echo ".git directory is missing"; fi
+          git status || true  # Ensure we continue even if this fails
+      - name: Verify Git repository
+        run: |
+          pwd
+          ls -al
+          git status
+          git rev-parse --is-inside-work-tree
+      - name: Verify no changes
+        run: |
+          echo "Checking for unformatted code..."
+          git diff --exit-code || (echo "Unformatted code found. Please run 'go fmt' and commit the changes." && exit 1)
+        working-directory: ${{ github.workspace }}
   snyk-scan:
     runs-on: ubuntu-latest
     env:
