@@ -3,19 +3,20 @@ package sqsclient
 import (
 	"context"
 	"encoding/json"
-	"go.uber.org/zap"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	aws_config "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
-
 	"github.com/stretchr/testify/assert"
 )
 
@@ -81,7 +82,7 @@ func TestConsume(t *testing.T) {
 	})
 
 	// Send message to the queue
-	sendTestMsg(t, ctx, consumer, queueUrl, expectedMsg)
+	sendTestMsg(t, ctx, consumer.sqs, queueUrl, expectedMsg)
 
 	// Wait for the message to arrive
 	time.Sleep(time.Second * 1)
@@ -90,9 +91,9 @@ func TestConsume(t *testing.T) {
 	assert.Equal(t, 1, msgHandler.msgsReceivedCount)
 
 	// Check that received message was deleted from the queue
-	messageCount := getNumOfVisibleMessagesInQueue(t, ctx, consumer, queueUrl)
+	messageCount := getNumOfVisibleMessagesInQueue(t, ctx, consumer.sqs, queueUrl)
 	assert.Equal(t, 0, messageCount)
-	messageCount = getNumOfNotVisibleMessagesInQueue(t, ctx, consumer, queueUrl)
+	messageCount = getNumOfNotVisibleMessagesInQueue(t, ctx, consumer.sqs, queueUrl)
 	assert.Equal(t, 0, messageCount)
 }
 
@@ -112,22 +113,37 @@ func TestConsume_GracefulShutdown(t *testing.T) {
 	}
 	msgHandler := MsgHandler{}
 	consumer := NewConsumer(awsCfg, config, &msgHandler)
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
 		time.Sleep(time.Second * 1)
 		// Cancel context to trigger graceful shutdown
 		cancel()
 	}()
+	// Goroutine to fail the test if shutdown doesn't occur within 5 seconds
 	go func() {
-		// Fail the test if the consumer doesn't shut down after 5 secs
-		time.Sleep(time.Second * 5)
-		zap.S().Error("consumer didn't shut down")
-		os.Exit(1)
+		defer wg.Done()
+		select {
+		case <-time.After(time.Second * 5):
+			zap.S().Error("consumer didn't shut down")
+			t.Fatal("consumer failed to shut down gracefully within the expected time")
+		case <-ctx.Done():
+			zap.S().Info("test context done")
+		}
 	}()
-	consumer.Consume(ctx)
+
+	// Start consuming messages in a separate goroutine to prevent blocking
+	go func() {
+		consumer.Consume(ctx)
+	}()
+
+	// Wait for the consumer to process the shutdown
+	wg.Wait()
 
 	assert.Eventually(t, func() bool {
 		// Check that shutdown was called
-		return assert.Equal(t, true, msgHandler.shutdownReceived)
+		return msgHandler.shutdownReceived
 	}, time.Second*2, time.Millisecond*100)
 }
 
@@ -177,9 +193,9 @@ func (m *MsgHandler) Shutdown() {
 	// Do nothing
 }
 
-func sendTestMsg(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl *string, expectedMsg TestMsg) TestMsg {
+func sendTestMsg(t *testing.T, ctx context.Context, sqsClient *sqs.Client, queueUrl *string, expectedMsg TestMsg) TestMsg {
 	messageBodyBytes, err := json.Marshal(expectedMsg)
-	_, err = consumer.sqs.SendMessage(ctx, &sqs.SendMessageInput{
+	_, err = sqsClient.SendMessage(ctx, &sqs.SendMessageInput{
 		MessageBody: aws.String(string(messageBodyBytes)),
 		QueueUrl:    queueUrl,
 		MessageAttributes: map[string]types.MessageAttributeValue{
@@ -200,16 +216,16 @@ func sendTestMsg(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl
 	return expectedMsg
 }
 
-func getNumOfVisibleMessagesInQueue(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl *string) int {
-	return getQueueAttribute(t, ctx, consumer, queueUrl, "ApproximateNumberOfMessages")
+func getNumOfVisibleMessagesInQueue(t *testing.T, ctx context.Context, sqsClient *sqs.Client, queueUrl *string) int {
+	return getQueueAttribute(t, ctx, sqsClient, queueUrl, "ApproximateNumberOfMessages")
 }
 
-func getNumOfNotVisibleMessagesInQueue(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl *string) int {
-	return getQueueAttribute(t, ctx, consumer, queueUrl, "ApproximateNumberOfMessagesNotVisible")
+func getNumOfNotVisibleMessagesInQueue(t *testing.T, ctx context.Context, sqsClient *sqs.Client, queueUrl *string) int {
+	return getQueueAttribute(t, ctx, sqsClient, queueUrl, "ApproximateNumberOfMessagesNotVisible")
 }
 
-func getQueueAttribute(t *testing.T, ctx context.Context, consumer *Consumer, queueUrl *string, attributeName string) int {
-	attributes, err := consumer.sqs.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+func getQueueAttribute(t *testing.T, ctx context.Context, sqsClient *sqs.Client, queueUrl *string, attributeName string) int {
+	attributes, err := sqsClient.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
 		QueueUrl:       queueUrl,
 		AttributeNames: []types.QueueAttributeName{types.QueueAttributeName(attributeName)},
 	})
