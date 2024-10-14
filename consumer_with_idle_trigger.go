@@ -13,20 +13,22 @@ import (
 )
 
 type ConsumerWithIdleTrigger struct {
-	sqs                 *sqs.Client
-	handler             HandlerWithIdleTrigger
-	wg                  *sync.WaitGroup
-	cfg                 Config
-	idleDurationTimeout time.Duration
+	sqs                       *sqs.Client
+	handler                   HandlerWithIdleTrigger
+	wg                        *sync.WaitGroup
+	cfg                       Config
+	idleDurationTimeout       time.Duration
+	sqsReceiveWaitTimeSeconds int32
 }
 
-func NewConsumerWithIdleTrigger(awsCfg aws.Config, cfg Config, handler HandlerWithIdleTrigger, idleDurationTimeout time.Duration) *ConsumerWithIdleTrigger {
+func NewConsumerWithIdleTrigger(awsCfg aws.Config, cfg Config, handler HandlerWithIdleTrigger, idleDurationTimeout time.Duration, sqsReceiveWaitTimeSeconds int32) *ConsumerWithIdleTrigger {
 	return &ConsumerWithIdleTrigger{
-		sqs:                 sqs.NewFromConfig(awsCfg),
-		handler:             handler,
-		wg:                  &sync.WaitGroup{},
-		cfg:                 cfg,
-		idleDurationTimeout: idleDurationTimeout,
+		sqs:                       sqs.NewFromConfig(awsCfg),
+		handler:                   handler,
+		wg:                        &sync.WaitGroup{},
+		cfg:                       cfg,
+		idleDurationTimeout:       idleDurationTimeout,
+		sqsReceiveWaitTimeSeconds: sqsReceiveWaitTimeSeconds,
 	}
 }
 
@@ -57,7 +59,7 @@ loop:
 			output, err := c.sqs.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
 				QueueUrl:              &c.cfg.QueueURL,
 				MaxNumberOfMessages:   c.cfg.BatchSize,
-				WaitTimeSeconds:       int32(c.idleDurationTimeout.Seconds()),
+				WaitTimeSeconds:       c.sqsReceiveWaitTimeSeconds,
 				MessageAttributeNames: []string{"TraceID", "SpanID"},
 			})
 			if err != nil {

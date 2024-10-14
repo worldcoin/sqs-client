@@ -28,7 +28,8 @@ type MsgHandlerWithIdleTrigger struct {
 }
 
 const (
-	IdleTimeout = 500 * time.Millisecond
+	IdleTimeout               = 500 * time.Millisecond
+	SqsReceiveWaitTimeSeconds = int32(1)
 )
 
 func TestConsumeWithIdleTrigger(t *testing.T) {
@@ -58,7 +59,7 @@ func TestConsumeWithIdleTrigger(t *testing.T) {
 		BatchSize:         batchSize,
 		ExtendEnabled:     true,
 	}
-	consumer := NewConsumerWithIdleTrigger(awsCfg, config, msgHandler, IdleTimeout)
+	consumer := NewConsumerWithIdleTrigger(awsCfg, config, msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
 	go consumer.Consume(ctx)
 
 	t.Cleanup(func() {
@@ -104,7 +105,7 @@ func TestConsumeWithIdleTimeout_GracefulShutdown(t *testing.T) {
 		t:                 t,
 		msgsReceivedCount: 0,
 	}
-	consumer := NewConsumerWithIdleTrigger(awsCfg, config, &msgHandler, IdleTimeout)
+	consumer := NewConsumerWithIdleTrigger(awsCfg, config, &msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -155,7 +156,7 @@ func TestConsumeWithIdleTimeout_TimesOut(t *testing.T) {
 		t:                 t,
 		msgsReceivedCount: 0,
 	}
-	consumer := NewConsumerWithIdleTrigger(awsCfg, config, &msgHandler, IdleTimeout)
+	consumer := NewConsumerWithIdleTrigger(awsCfg, config, &msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
 	go consumer.Consume(ctx)
 
 	t.Cleanup(func() {
@@ -163,7 +164,7 @@ func TestConsumeWithIdleTimeout_TimesOut(t *testing.T) {
 	})
 
 	// Wait for the timeout
-	time.Sleep(time.Second * 2)
+	time.Sleep(time.Second * 3)
 
 	// ensure that it gets called multiple times
 	assert.GreaterOrEqual(t, msgHandler.idleTimeoutTriggeredCount, 2)
@@ -195,7 +196,7 @@ func TestConsumeWithIdleTimeout_TimesOutAndConsumes(t *testing.T) {
 		ExtendEnabled:     true,
 	}
 	msgHandler := handlerWithIdleTrigger(t, expectedMsg, expectedMsgAttributes)
-	consumer := NewConsumerWithIdleTrigger(awsCfg, config, msgHandler, IdleTimeout)
+	consumer := NewConsumerWithIdleTrigger(awsCfg, config, msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
 	go consumer.Consume(ctx)
 
 	t.Cleanup(func() {
@@ -206,7 +207,7 @@ func TestConsumeWithIdleTimeout_TimesOutAndConsumes(t *testing.T) {
 		}
 		cancel()
 	})
-	time.Sleep(time.Second * 1)
+	time.Sleep(time.Second * 2)
 
 	// ensure that it gets called first before receiving a message
 	assert.GreaterOrEqual(t, msgHandler.idleTimeoutTriggeredCount, 1)
@@ -218,7 +219,7 @@ func TestConsumeWithIdleTimeout_TimesOutAndConsumes(t *testing.T) {
 	time.Sleep(time.Second * 2)
 	// Check that the message arrived
 	assert.Equal(t, 1, msgHandler.msgsReceivedCount)
-	assert.GreaterOrEqual(t, msgHandler.idleTimeoutTriggeredCount, 3)
+	assert.GreaterOrEqual(t, msgHandler.idleTimeoutTriggeredCount, 2)
 
 }
 
