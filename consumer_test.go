@@ -63,12 +63,13 @@ func TestConsume(t *testing.T) {
 
 	msgHandler := handler(t, expectedMsg, expectedMsgAttributes)
 	config := Config{
-		QueueURL:          *queueUrl,
-		WorkersNum:        workersNum,
-		VisibilityTimeout: visibilityTimeout,
-		BatchSize:         batchSize,
+		QueueURL:                 *queueUrl,
+		WorkersNum:               workersNum,
+		VisibilityTimeoutSeconds: visibilityTimeout,
+		BatchSize:                batchSize,
 	}
-	consumer := NewConsumer(awsCfg, config, msgHandler)
+	consumer, err := NewConsumer(awsCfg, config, msgHandler)
+	assert.NoError(t, err)
 	go consumer.Consume(ctx)
 
 	t.Cleanup(func() {
@@ -104,13 +105,14 @@ func TestConsume_GracefulShutdown(t *testing.T) {
 	queueUrl := createQueue(t, ctx, awsCfg, queueName)
 
 	config := Config{
-		QueueURL:          *queueUrl,
-		WorkersNum:        workersNum,
-		VisibilityTimeout: visibilityTimeout,
-		BatchSize:         batchSize,
+		QueueURL:                 *queueUrl,
+		WorkersNum:               workersNum,
+		VisibilityTimeoutSeconds: visibilityTimeout,
+		BatchSize:                batchSize,
 	}
 	msgHandler := MsgHandler{}
-	consumer := NewConsumer(awsCfg, config, &msgHandler)
+	consumer, err := NewConsumer(awsCfg, config, &msgHandler)
+	assert.NoError(t, err)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
@@ -143,6 +145,28 @@ func TestConsume_GracefulShutdown(t *testing.T) {
 		// Check that shutdown was called
 		return msgHandler.shutdownReceived
 	}, time.Second*2, time.Millisecond*100)
+}
+
+func TestConsume_ErrorsIfConfigIssues(t *testing.T) {
+	ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
+	awsCfg := loadAWSDefaultConfig(ctx)
+
+	queueName := strings.ToLower(t.Name())
+	queueUrl := createQueue(t, ctx, awsCfg, queueName)
+
+	config := Config{
+		QueueURL:                 *queueUrl,
+		WorkersNum:               workersNum,
+		VisibilityTimeoutSeconds: 0,
+		BatchSize:                batchSize,
+	}
+	msgHandler := MsgHandlerWithIdleTrigger{
+		t:                 t,
+		msgsReceivedCount: 0,
+	}
+	consumer, err := NewConsumer(awsCfg, config, &msgHandler)
+	assert.Error(t, err)
+	assert.Nil(t, consumer)
 }
 
 func createQueue(t *testing.T, ctx context.Context, awsCfg aws.Config, queueName string) *string {

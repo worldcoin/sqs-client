@@ -2,6 +2,7 @@ package sqsclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -21,7 +22,10 @@ type ConsumerWithIdleTrigger struct {
 	sqsReceiveWaitTimeSeconds int32
 }
 
-func NewConsumerWithIdleTrigger(awsCfg aws.Config, cfg Config, handler HandlerWithIdleTrigger, idleDurationTimeout time.Duration, sqsReceiveWaitTimeSeconds int32) *ConsumerWithIdleTrigger {
+func NewConsumerWithIdleTrigger(awsCfg aws.Config, cfg Config, handler HandlerWithIdleTrigger, idleDurationTimeout time.Duration, sqsReceiveWaitTimeSeconds int32) (*ConsumerWithIdleTrigger, error) {
+	if cfg.VisibilityTimeoutSeconds <= 0 {
+		return nil, errors.New("VisibilityTimeoutSeconds must be greater than 0")
+	}
 	return &ConsumerWithIdleTrigger{
 		sqs:                       sqs.NewFromConfig(awsCfg),
 		handler:                   handler,
@@ -29,7 +33,7 @@ func NewConsumerWithIdleTrigger(awsCfg aws.Config, cfg Config, handler HandlerWi
 		cfg:                       cfg,
 		idleDurationTimeout:       idleDurationTimeout,
 		sqsReceiveWaitTimeSeconds: sqsReceiveWaitTimeSeconds,
-	}
+	}, nil
 }
 
 func (c *ConsumerWithIdleTrigger) Consume(ctx context.Context) {
@@ -61,6 +65,7 @@ loop:
 				MaxNumberOfMessages:   c.cfg.BatchSize,
 				WaitTimeSeconds:       c.sqsReceiveWaitTimeSeconds,
 				MessageAttributeNames: []string{"TraceID", "SpanID"},
+				VisibilityTimeout:     c.cfg.VisibilityTimeoutSeconds,
 			})
 			if err != nil {
 				zap.S().With(zap.Error(err)).Error("could not receive messages from SQS")
@@ -121,16 +126,4 @@ func (c *ConsumerWithIdleTrigger) delete(ctx context.Context, m *Message) error 
 	}
 	zap.S().Debug("message deleted")
 	return nil
-}
-
-func (c *ConsumerWithIdleTrigger) extend(ctx context.Context, m *Message) {
-	_, err := c.sqs.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
-		QueueUrl:          &c.cfg.QueueURL,
-		ReceiptHandle:     m.ReceiptHandle,
-		VisibilityTimeout: c.cfg.VisibilityTimeout,
-	})
-	if err != nil {
-		zap.S().With(zap.Error(err)).Error("unable to extend message")
-		return
-	}
 }

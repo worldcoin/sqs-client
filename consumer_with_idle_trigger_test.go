@@ -53,12 +53,13 @@ func TestConsumeWithIdleTrigger(t *testing.T) {
 
 	msgHandler := handlerWithIdleTrigger(t, expectedMsg, expectedMsgAttributes)
 	config := Config{
-		QueueURL:          *queueUrl,
-		WorkersNum:        workersNum,
-		VisibilityTimeout: visibilityTimeout,
-		BatchSize:         batchSize,
+		QueueURL:                 *queueUrl,
+		WorkersNum:               workersNum,
+		VisibilityTimeoutSeconds: visibilityTimeout,
+		BatchSize:                batchSize,
 	}
-	consumer := NewConsumerWithIdleTrigger(awsCfg, config, msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
+	consumer, err := NewConsumerWithIdleTrigger(awsCfg, config, msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
+	assert.NoError(t, err)
 	go consumer.Consume(ctx)
 
 	t.Cleanup(func() {
@@ -94,16 +95,17 @@ func TestConsumeWithIdleTimeout_GracefulShutdown(t *testing.T) {
 	queueUrl := createQueue(t, ctx, awsCfg, queueName)
 
 	config := Config{
-		QueueURL:          *queueUrl,
-		WorkersNum:        workersNum,
-		VisibilityTimeout: visibilityTimeout,
-		BatchSize:         batchSize,
+		QueueURL:                 *queueUrl,
+		WorkersNum:               workersNum,
+		VisibilityTimeoutSeconds: visibilityTimeout,
+		BatchSize:                batchSize,
 	}
 	msgHandler := MsgHandlerWithIdleTrigger{
 		t:                 t,
 		msgsReceivedCount: 0,
 	}
-	consumer := NewConsumerWithIdleTrigger(awsCfg, config, &msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
+	consumer, err := NewConsumerWithIdleTrigger(awsCfg, config, &msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
+	assert.NoError(t, err)
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -144,16 +146,17 @@ func TestConsumeWithIdleTimeout_TimesOut(t *testing.T) {
 	queueUrl := createQueue(t, ctx, awsCfg, queueName)
 
 	config := Config{
-		QueueURL:          *queueUrl,
-		WorkersNum:        workersNum,
-		VisibilityTimeout: visibilityTimeout,
-		BatchSize:         batchSize,
+		QueueURL:                 *queueUrl,
+		WorkersNum:               workersNum,
+		VisibilityTimeoutSeconds: visibilityTimeout,
+		BatchSize:                batchSize,
 	}
 	msgHandler := MsgHandlerWithIdleTrigger{
 		t:                 t,
 		msgsReceivedCount: 0,
 	}
-	consumer := NewConsumerWithIdleTrigger(awsCfg, config, &msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
+	consumer, err := NewConsumerWithIdleTrigger(awsCfg, config, &msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
+	assert.NoError(t, err)
 	go consumer.Consume(ctx)
 
 	t.Cleanup(func() {
@@ -165,6 +168,28 @@ func TestConsumeWithIdleTimeout_TimesOut(t *testing.T) {
 
 	// ensure that it gets called multiple times
 	assert.GreaterOrEqual(t, msgHandler.idleTimeoutTriggeredCount, 2)
+}
+
+func TestConsumeWithIdleTimeout_ErrorsIfConfigIssues(t *testing.T) {
+	ctx, _ := context.WithTimeout(context.Background(), time.Second*10)
+	awsCfg := loadAWSDefaultConfig(ctx)
+
+	queueName := strings.ToLower(t.Name())
+	queueUrl := createQueue(t, ctx, awsCfg, queueName)
+
+	config := Config{
+		QueueURL:                 *queueUrl,
+		WorkersNum:               workersNum,
+		VisibilityTimeoutSeconds: 0,
+		BatchSize:                batchSize,
+	}
+	msgHandler := MsgHandlerWithIdleTrigger{
+		t:                 t,
+		msgsReceivedCount: 0,
+	}
+	consumer, err := NewConsumerWithIdleTrigger(awsCfg, config, &msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
+	assert.Error(t, err)
+	assert.Nil(t, consumer)
 }
 func TestConsumeWithIdleTimeout_TimesOutAndConsumes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
@@ -186,13 +211,14 @@ func TestConsumeWithIdleTimeout_TimesOutAndConsumes(t *testing.T) {
 	}
 
 	config := Config{
-		QueueURL:          *queueUrl,
-		WorkersNum:        workersNum,
-		VisibilityTimeout: visibilityTimeout,
-		BatchSize:         batchSize,
+		QueueURL:                 *queueUrl,
+		WorkersNum:               workersNum,
+		VisibilityTimeoutSeconds: visibilityTimeout,
+		BatchSize:                batchSize,
 	}
 	msgHandler := handlerWithIdleTrigger(t, expectedMsg, expectedMsgAttributes)
-	consumer := NewConsumerWithIdleTrigger(awsCfg, config, msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
+	consumer, err := NewConsumerWithIdleTrigger(awsCfg, config, msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
+	assert.NoError(t, err)
 	go consumer.Consume(ctx)
 
 	t.Cleanup(func() {

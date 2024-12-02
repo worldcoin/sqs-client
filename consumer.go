@@ -2,6 +2,7 @@ package sqsclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -12,10 +13,10 @@ import (
 )
 
 type Config struct {
-	QueueURL          string
-	WorkersNum        int
-	VisibilityTimeout int32
-	BatchSize         int32
+	QueueURL                 string
+	WorkersNum               int
+	VisibilityTimeoutSeconds int32
+	BatchSize                int32
 }
 
 type Consumer struct {
@@ -25,13 +26,16 @@ type Consumer struct {
 	cfg     Config
 }
 
-func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) *Consumer {
+func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) (*Consumer, error) {
+	if cfg.VisibilityTimeoutSeconds <= 0 {
+		return nil, errors.New("VisibilityTimeoutSeconds must be greater than 0")
+	}
 	return &Consumer{
 		sqs:     sqs.NewFromConfig(awsCfg),
 		handler: handler,
 		wg:      &sync.WaitGroup{},
 		cfg:     cfg,
-	}
+	}, nil
 }
 
 func (c *Consumer) Consume(ctx context.Context) {
@@ -55,7 +59,7 @@ loop:
 				MaxNumberOfMessages:   c.cfg.BatchSize,
 				WaitTimeSeconds:       int32(5),
 				MessageAttributeNames: []string{"TraceID", "SpanID"},
-				VisibilityTimeout:     c.cfg.VisibilityTimeout,
+				VisibilityTimeout:     c.cfg.VisibilityTimeoutSeconds,
 			})
 			if err != nil {
 				zap.S().With(zap.Error(err)).Error("could not receive messages from SQS")
