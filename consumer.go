@@ -2,6 +2,7 @@ package sqsclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -12,11 +13,10 @@ import (
 )
 
 type Config struct {
-	QueueURL          string
-	WorkersNum        int
-	VisibilityTimeout int32
-	BatchSize         int32
-	ExtendEnabled     bool
+	QueueURL                 string
+	WorkersNum               int
+	VisibilityTimeoutSeconds int32
+	BatchSize                int32
 }
 
 type Consumer struct {
@@ -26,13 +26,17 @@ type Consumer struct {
 	cfg     Config
 }
 
-func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) *Consumer {
+func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) (*Consumer, error) {
+	if cfg.VisibilityTimeoutSeconds < 30 {
+		return nil, errors.New("VisibilityTimeoutSeconds must be greater or equal to 30")
+	}
+
 	return &Consumer{
 		sqs:     sqs.NewFromConfig(awsCfg),
 		handler: handler,
 		wg:      &sync.WaitGroup{},
 		cfg:     cfg,
-	}
+	}, nil
 }
 
 func (c *Consumer) Consume(ctx context.Context) {
@@ -56,6 +60,7 @@ loop:
 				MaxNumberOfMessages:   c.cfg.BatchSize,
 				WaitTimeSeconds:       int32(5),
 				MessageAttributeNames: []string{"TraceID", "SpanID"},
+				VisibilityTimeout:     c.cfg.VisibilityTimeoutSeconds,
 			})
 			if err != nil {
 				zap.S().With(zap.Error(err)).Error("could not receive messages from SQS")
@@ -83,9 +88,6 @@ func (c *Consumer) worker(ctx context.Context, messages <-chan *Message) {
 
 func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
 	if c.handler != nil {
-		if c.cfg.ExtendEnabled {
-			c.extend(ctx, m)
-		}
 		if err := c.handler.Run(ctx, m); err != nil {
 			return m.ErrorResponse(err)
 		}
@@ -103,16 +105,4 @@ func (c *Consumer) delete(ctx context.Context, m *Message) error {
 	}
 	zap.S().Debug("message deleted")
 	return nil
-}
-
-func (c *Consumer) extend(ctx context.Context, m *Message) {
-	_, err := c.sqs.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
-		QueueUrl:          &c.cfg.QueueURL,
-		ReceiptHandle:     m.ReceiptHandle,
-		VisibilityTimeout: c.cfg.VisibilityTimeout,
-	})
-	if err != nil {
-		zap.S().With(zap.Error(err)).Error("unable to extend message")
-		return
-	}
 }
