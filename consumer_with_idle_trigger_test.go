@@ -177,19 +177,37 @@ func TestConsumeWithIdleTimeout_ErrorsIfConfigIssues(t *testing.T) {
 	queueName := strings.ToLower(t.Name())
 	queueUrl := createQueue(t, ctx, awsCfg, queueName)
 
-	config := Config{
-		QueueURL:                 *queueUrl,
-		WorkersNum:               workersNum,
-		VisibilityTimeoutSeconds: 0,
-		BatchSize:                batchSize,
-	}
 	msgHandler := MsgHandlerWithIdleTrigger{
 		t:                 t,
 		msgsReceivedCount: 0,
 	}
-	consumer, err := NewConsumerWithIdleTrigger(awsCfg, config, &msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
-	assert.Error(t, err)
-	assert.Nil(t, consumer)
+	tests := []struct {
+		name                     string
+		visibilityTimeoutSeconds int32
+	}{
+		{
+			name:                     "VisibilityTimeoutSeconds is less than 30",
+			visibilityTimeoutSeconds: int32(29),
+		},
+		{
+			name:                     "VisibilityTimeoutSeconds is less than 0",
+			visibilityTimeoutSeconds: int32(-1),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := Config{
+				QueueURL:                 *queueUrl,
+				WorkersNum:               workersNum,
+				VisibilityTimeoutSeconds: tt.visibilityTimeoutSeconds,
+				BatchSize:                batchSize,
+			}
+			consumer, err := NewConsumerWithIdleTrigger(awsCfg, config, &msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
+			t.Logf("error: %v", err)
+			assert.Error(t, err)
+			assert.Nil(t, consumer)
+		})
+	}
 }
 func TestConsumeWithIdleTimeout_TimesOutAndConsumes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)

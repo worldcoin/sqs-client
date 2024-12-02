@@ -23,7 +23,7 @@ import (
 const (
 	awsRegion         = "us-east-1"
 	localAwsEndpoint  = "http://localhost:4566"
-	visibilityTimeout = 20
+	visibilityTimeout = 30
 	batchSize         = 10
 	workersNum        = 1
 	traceId           = "traceid123"
@@ -154,19 +154,36 @@ func TestConsume_ErrorsIfConfigIssues(t *testing.T) {
 	queueName := strings.ToLower(t.Name())
 	queueUrl := createQueue(t, ctx, awsCfg, queueName)
 
-	config := Config{
-		QueueURL:                 *queueUrl,
-		WorkersNum:               workersNum,
-		VisibilityTimeoutSeconds: 0,
-		BatchSize:                batchSize,
-	}
 	msgHandler := MsgHandlerWithIdleTrigger{
 		t:                 t,
 		msgsReceivedCount: 0,
 	}
-	consumer, err := NewConsumer(awsCfg, config, &msgHandler)
-	assert.Error(t, err)
-	assert.Nil(t, consumer)
+	tests := []struct {
+		name                     string
+		visibilityTimeoutSeconds int32
+	}{
+		{
+			name:                     "VisibilityTimeoutSeconds is less than 30",
+			visibilityTimeoutSeconds: int32(29),
+		},
+		{
+			name:                     "VisibilityTimeoutSeconds is less than 0",
+			visibilityTimeoutSeconds: int32(-1),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := Config{
+				QueueURL:                 *queueUrl,
+				WorkersNum:               workersNum,
+				VisibilityTimeoutSeconds: tt.visibilityTimeoutSeconds,
+				BatchSize:                batchSize,
+			}
+			consumer, err := NewConsumer(awsCfg, config, &msgHandler)
+			assert.Error(t, err)
+			assert.Nil(t, consumer)
+		})
+	}
 }
 
 func createQueue(t *testing.T, ctx context.Context, awsCfg aws.Config, queueName string) *string {

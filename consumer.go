@@ -27,9 +27,10 @@ type Consumer struct {
 }
 
 func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) (*Consumer, error) {
-	if cfg.VisibilityTimeoutSeconds <= 0 {
-		return nil, errors.New("VisibilityTimeoutSeconds must be greater than 0")
+	if cfg.VisibilityTimeoutSeconds < 30 {
+		return nil, errors.New("VisibilityTimeoutSeconds must be greater or equal to 30")
 	}
+
 	return &Consumer{
 		sqs:     sqs.NewFromConfig(awsCfg),
 		handler: handler,

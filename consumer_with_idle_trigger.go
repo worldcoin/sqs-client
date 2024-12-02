@@ -23,8 +23,8 @@ type ConsumerWithIdleTrigger struct {
 }
 
 func NewConsumerWithIdleTrigger(awsCfg aws.Config, cfg Config, handler HandlerWithIdleTrigger, idleDurationTimeout time.Duration, sqsReceiveWaitTimeSeconds int32) (*ConsumerWithIdleTrigger, error) {
-	if cfg.VisibilityTimeoutSeconds <= 0 {
-		return nil, errors.New("VisibilityTimeoutSeconds must be greater than 0")
+	if cfg.VisibilityTimeoutSeconds < 30 {
+		return nil, errors.New("VisibilityTimeoutSeconds must be greater or equal to 30")
 	}
 	return &ConsumerWithIdleTrigger{
 		sqs:                       sqs.NewFromConfig(awsCfg),
