@@ -103,9 +103,6 @@ func (c *ConsumerWithIdleTrigger) handleMsg(ctx context.Context, m *Message) err
 				return m.ErrorResponse(err)
 			}
 		} else {
-			if c.cfg.ExtendEnabled {
-				c.extend(ctx, m)
-			}
 			if err := c.handler.Run(ctx, m); err != nil {
 				return m.ErrorResponse(err)
 			}

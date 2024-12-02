@@ -67,7 +67,6 @@ func TestConsume(t *testing.T) {
 		WorkersNum:        workersNum,
 		VisibilityTimeout: visibilityTimeout,
 		BatchSize:         batchSize,
-		ExtendEnabled:     true,
 	}
 	consumer := NewConsumer(awsCfg, config, msgHandler)
 	go consumer.Consume(ctx)
@@ -109,7 +108,6 @@ func TestConsume_GracefulShutdown(t *testing.T) {
 		WorkersNum:        workersNum,
 		VisibilityTimeout: visibilityTimeout,
 		BatchSize:         batchSize,
-		ExtendEnabled:     true,
 	}
 	msgHandler := MsgHandler{}
 	consumer := NewConsumer(awsCfg, config, &msgHandler)

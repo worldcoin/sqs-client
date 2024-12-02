@@ -16,7 +16,6 @@ type Config struct {
 	WorkersNum        int
 	VisibilityTimeout int32
 	BatchSize         int32
-	ExtendEnabled     bool
 }
 
 type Consumer struct {
@@ -56,6 +55,7 @@ loop:
 				MaxNumberOfMessages:   c.cfg.BatchSize,
 				WaitTimeSeconds:       int32(5),
 				MessageAttributeNames: []string{"TraceID", "SpanID"},
+				VisibilityTimeout:     c.cfg.VisibilityTimeout,
 			})
 			if err != nil {
 				zap.S().With(zap.Error(err)).Error("could not receive messages from SQS")
@@ -83,9 +83,6 @@ func (c *Consumer) worker(ctx context.Context, messages <-chan *Message) {
 
 func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
 	if c.handler != nil {
-		if c.cfg.ExtendEnabled {
-			c.extend(ctx, m)
-		}
 		if err := c.handler.Run(ctx, m); err != nil {
 			return m.ErrorResponse(err)
 		}
@@ -103,16 +100,4 @@ func (c *Consumer) delete(ctx context.Context, m *Message) error {
 	}
 	zap.S().Debug("message deleted")
 	return nil
-}
-
-func (c *Consumer) extend(ctx context.Context, m *Message) {
-	_, err := c.sqs.ChangeMessageVisibility(ctx, &sqs.ChangeMessageVisibilityInput{
-		QueueUrl:          &c.cfg.QueueURL,
-		ReceiptHandle:     m.ReceiptHandle,
-		VisibilityTimeout: c.cfg.VisibilityTimeout,
-	})
-	if err != nil {
-		zap.S().With(zap.Error(err)).Error("unable to extend message")
-		return
-	}
 }

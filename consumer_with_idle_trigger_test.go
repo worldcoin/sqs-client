@@ -57,7 +57,6 @@ func TestConsumeWithIdleTrigger(t *testing.T) {
 		WorkersNum:        workersNum,
 		VisibilityTimeout: visibilityTimeout,
 		BatchSize:         batchSize,
-		ExtendEnabled:     true,
 	}
 	consumer := NewConsumerWithIdleTrigger(awsCfg, config, msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
 	go consumer.Consume(ctx)
@@ -99,7 +98,6 @@ func TestConsumeWithIdleTimeout_GracefulShutdown(t *testing.T) {
 		WorkersNum:        workersNum,
 		VisibilityTimeout: visibilityTimeout,
 		BatchSize:         batchSize,
-		ExtendEnabled:     true,
 	}
 	msgHandler := MsgHandlerWithIdleTrigger{
 		t:                 t,
@@ -150,7 +148,6 @@ func TestConsumeWithIdleTimeout_TimesOut(t *testing.T) {
 		WorkersNum:        workersNum,
 		VisibilityTimeout: visibilityTimeout,
 		BatchSize:         batchSize,
-		ExtendEnabled:     true,
 	}
 	msgHandler := MsgHandlerWithIdleTrigger{
 		t:                 t,
@@ -193,7 +190,6 @@ func TestConsumeWithIdleTimeout_TimesOutAndConsumes(t *testing.T) {
 		WorkersNum:        workersNum,
 		VisibilityTimeout: visibilityTimeout,
 		BatchSize:         batchSize,
-		ExtendEnabled:     true,
 	}
 	msgHandler := handlerWithIdleTrigger(t, expectedMsg, expectedMsgAttributes)
 	consumer := NewConsumerWithIdleTrigger(awsCfg, config, msgHandler, IdleTimeout, SqsReceiveWaitTimeSeconds)
