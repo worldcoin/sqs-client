@@ -63,6 +63,11 @@ loop:
 				VisibilityTimeout:     c.cfg.VisibilityTimeoutSeconds,
 			})
 			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					// Suppress expected errors during shutdown
+					zap.S().Info("ReceiveMessage interrupted due to context cancellation")
+					continue
+				}
 				zap.S().With(zap.Error(err)).Error("could not receive messages from SQS")
 				continue
 			}
