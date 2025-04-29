@@ -8,7 +8,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
-
 	"go.uber.org/zap"
 )
 
@@ -72,8 +71,9 @@ loop:
 				continue
 			}
 
-			for _, m := range output.Messages {
-				jobs <- newMessage(&m)
+			for _, msg := range output.Messages {
+				localMsg := msg // Create a local copy to avoid reference issues
+				jobs <- newMessage(&localMsg)
 			}
 		}
 	}
