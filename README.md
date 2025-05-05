@@ -8,7 +8,7 @@ The constructor accepts the following parameters:
 * `visibilityTimeout`: visibility timeout (in seconds) applied to every message pulled from the queue
 * `batchSize`: number of messages retrieved at each SQS poll
 * `workersNum`: size of the workers pool
-* `handler`: instance of the [Handler](./pkg/handler.go) interface that will be called for every message received
+* `handler`: instance of the [Handler](./handler.go) interface that will be called for every message received
 
 Example of usage:
 ```go
