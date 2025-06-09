@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -16,6 +17,8 @@ type Config struct {
 	WorkersNum               int
 	VisibilityTimeoutSeconds int32
 	BatchSize                int32
+	HandlerTimeoutSeconds    int32
+	DeleteTimeoutSeconds     int32
 }
 
 type Consumer struct {
@@ -28,6 +31,16 @@ type Consumer struct {
 func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) (*Consumer, error) {
 	if cfg.VisibilityTimeoutSeconds < 30 {
 		return nil, errors.New("VisibilityTimeoutSeconds must be greater or equal to 30")
+	}
+
+	// Set default handler timeout to 80% of visibility timeout if not specified
+	if cfg.HandlerTimeoutSeconds == 0 {
+		cfg.HandlerTimeoutSeconds = int32(float64(cfg.VisibilityTimeoutSeconds) * 0.8)
+	}
+
+	// Set default delete timeout to 15 seconds if not specified
+	if cfg.DeleteTimeoutSeconds == 0 {
+		cfg.DeleteTimeoutSeconds = 15
 	}
 
 	return &Consumer{
@@ -93,13 +106,25 @@ func (c *Consumer) worker(ctx context.Context, messages <-chan *Message) {
 
 func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
 	if c.handler != nil {
-		if err := c.handler.Run(ctx, m); err != nil {
+		// Create message-scoped context for handler execution
+		handlerTimeout := time.Duration(c.cfg.HandlerTimeoutSeconds) * time.Second
+		handlerCtx, cancel := context.WithTimeout(ctx, handlerTimeout)
+		defer cancel()
+
+		if err := c.handler.Run(handlerCtx, m); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				zap.S().Warn("handler execution timed out", zap.Duration("timeout", handlerTimeout))
+			}
 			return m.ErrorResponse(err)
 		}
 		m.Success()
 	}
 
-	return c.delete(ctx, m) //MESSAGE CONSUMED
+	// Use background context for cleanup to ensure it completes even during shutdown
+	deleteTimeout := time.Duration(c.cfg.DeleteTimeoutSeconds) * time.Second
+	deleteCtx, deleteCancel := context.WithTimeout(context.Background(), deleteTimeout)
+	defer deleteCancel()
+	return c.delete(deleteCtx, m) //MESSAGE CONSUMED
 }
 
 func (c *Consumer) delete(ctx context.Context, m *Message) error {
