@@ -18,7 +18,6 @@ type Config struct {
 	VisibilityTimeoutSeconds int32
 	BatchSize                int32
 	HandlerTimeoutSeconds    int32
-	DeleteTimeoutSeconds     int32
 }
 
 type Consumer struct {
@@ -36,11 +35,6 @@ func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) (*Consumer, err
 	// Set default handler timeout to 80% of visibility timeout if not specified
 	if cfg.HandlerTimeoutSeconds == 0 {
 		cfg.HandlerTimeoutSeconds = int32(float64(cfg.VisibilityTimeoutSeconds) * 0.8)
-	}
-
-	// Set default delete timeout to 15 seconds if not specified
-	if cfg.DeleteTimeoutSeconds == 0 {
-		cfg.DeleteTimeoutSeconds = 15
 	}
 
 	return &Consumer{
