@@ -17,7 +17,7 @@ type Config struct {
 	WorkersNum               int
 	VisibilityTimeoutSeconds int32
 	BatchSize                int32
-	HandlerTimeoutSeconds    int32
+	HandlerTimeoutDuration   *time.Duration
 }
 
 type Consumer struct {
@@ -33,8 +33,9 @@ func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) (*Consumer, err
 	}
 
 	// Set default handler timeout to 80% of visibility timeout if not specified
-	if cfg.HandlerTimeoutSeconds == 0 {
-		cfg.HandlerTimeoutSeconds = int32(float64(cfg.VisibilityTimeoutSeconds) * 0.8)
+	if cfg.HandlerTimeoutDuration == nil {
+		defaultTimeout := time.Duration(int32(float64(cfg.VisibilityTimeoutSeconds) * 0.8))
+		cfg.HandlerTimeoutDuration = &defaultTimeout
 	}
 
 	return &Consumer{
@@ -99,15 +100,14 @@ func (c *Consumer) worker(ctx context.Context, messages <-chan *Message) {
 }
 
 func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
-	handlerTimeout := time.Duration(c.cfg.HandlerTimeoutSeconds) * time.Second
-	handlerCtx, cancel := context.WithTimeout(ctx, handlerTimeout)
+	handlerCtx, cancel := context.WithTimeout(ctx, *c.cfg.HandlerTimeoutDuration)
 	defer cancel()
 
 	if c.handler != nil {
 		// Create message-scoped context for handler execution
 		if err := c.handler.Run(handlerCtx, m); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				zap.S().Warn("handler execution timed out", zap.Duration("timeout", handlerTimeout))
+				zap.S().Warn("handler execution timed out", zap.Duration("timeout", *c.cfg.HandlerTimeoutDuration))
 			}
 			return m.ErrorResponse(err)
 		}

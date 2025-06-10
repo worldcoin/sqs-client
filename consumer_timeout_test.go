@@ -14,7 +14,6 @@ type TimeoutTestHandler struct {
 	msgsReceivedCount int
 	shutdownReceived  bool
 	processingDelay   time.Duration
-	shouldTimeout     bool
 	timeoutOccurred   bool
 }
 
@@ -42,19 +41,18 @@ func TestNewConsumer_CustomTimeouts(t *testing.T) {
 	awsCfg := loadAWSDefaultConfig(ctx)
 
 	handler := &TimeoutTestHandler{t: t}
+	defaultTimeout := 45 * time.Second
 	config := Config{
 		QueueURL:                 "https://sqs.us-east-1.amazonaws.com/123456789012/test",
 		WorkersNum:               1,
 		VisibilityTimeoutSeconds: 60,
 		BatchSize:                10,
-		HandlerTimeoutSeconds:    45,
-		DeleteTimeoutSeconds:     25,
+		HandlerTimeoutDuration:   &defaultTimeout,
 	}
 
 	consumer, err := NewConsumer(awsCfg, config, handler)
 	assert.NoError(t, err)
-	assert.Equal(t, int32(45), consumer.cfg.HandlerTimeoutSeconds)
-	assert.Equal(t, int32(25), consumer.cfg.DeleteTimeoutSeconds)
+	assert.Equal(t, defaultTimeout, *consumer.cfg.HandlerTimeoutDuration)
 }
 
 func TestConsume_HandlerTimeout(t *testing.T) {
@@ -65,18 +63,18 @@ func TestConsume_HandlerTimeout(t *testing.T) {
 	queueName := strings.ToLower(t.Name())
 	queueUrl := createQueue(t, ctx, awsCfg, queueName)
 
+	defaultTimeout := 2 * time.Second
 	config := Config{
 		QueueURL:                 *queueUrl,
 		WorkersNum:               1,
 		VisibilityTimeoutSeconds: 30,
 		BatchSize:                1,
-		HandlerTimeoutSeconds:    2,
-		DeleteTimeoutSeconds:     15,
+		HandlerTimeoutDuration:   &defaultTimeout,
 	}
 
 	handler := &TimeoutTestHandler{
 		t:               t,
-		processingDelay: time.Duration(config.HandlerTimeoutSeconds+1) * time.Second, // 1 second longer than timeout
+		processingDelay: defaultTimeout + 1*time.Second, // 1 second longer than timeout
 	}
 
 	consumer, err := NewConsumer(awsCfg, config, handler)
