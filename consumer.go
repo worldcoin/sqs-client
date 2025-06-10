@@ -34,7 +34,7 @@ func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) (*Consumer, err
 
 	// Set default handler timeout to 80% of visibility timeout if not specified
 	if cfg.HandlerTimeoutDuration == nil {
-		defaultTimeout := time.Duration(int32(float64(cfg.VisibilityTimeoutSeconds) * 0.8))
+		defaultTimeout := time.Duration(int32(float64(cfg.VisibilityTimeoutSeconds)*0.8)) * time.Second
 		cfg.HandlerTimeoutDuration = &defaultTimeout
 	}
 
