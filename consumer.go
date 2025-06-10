@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -16,6 +17,7 @@ type Config struct {
 	WorkersNum               int
 	VisibilityTimeoutSeconds int32
 	BatchSize                int32
+	HandlerTimeoutDuration   *time.Duration
 }
 
 type Consumer struct {
@@ -28,6 +30,12 @@ type Consumer struct {
 func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) (*Consumer, error) {
 	if cfg.VisibilityTimeoutSeconds < 30 {
 		return nil, errors.New("VisibilityTimeoutSeconds must be greater or equal to 30")
+	}
+
+	// Set default handler timeout to 80% of visibility timeout if not specified
+	if cfg.HandlerTimeoutDuration == nil {
+		defaultTimeout := time.Duration(int32(float64(cfg.VisibilityTimeoutSeconds)*0.8)) * time.Second
+		cfg.HandlerTimeoutDuration = &defaultTimeout
 	}
 
 	return &Consumer{
@@ -92,14 +100,21 @@ func (c *Consumer) worker(ctx context.Context, messages <-chan *Message) {
 }
 
 func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
+	handlerCtx, cancel := context.WithTimeout(ctx, *c.cfg.HandlerTimeoutDuration)
+	defer cancel()
+
 	if c.handler != nil {
-		if err := c.handler.Run(ctx, m); err != nil {
+		// Create message-scoped context for handler execution
+		if err := c.handler.Run(handlerCtx, m); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				zap.S().Warn("handler execution timed out", zap.Duration("timeout", *c.cfg.HandlerTimeoutDuration))
+			}
 			return m.ErrorResponse(err)
 		}
 		m.Success()
 	}
 
-	return c.delete(ctx, m) //MESSAGE CONSUMED
+	return c.delete(handlerCtx, m) //MESSAGE CONSUMED
 }
 
 func (c *Consumer) delete(ctx context.Context, m *Message) error {
