@@ -105,12 +105,12 @@ func (c *Consumer) worker(ctx context.Context, messages <-chan *Message) {
 }
 
 func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
+	handlerTimeout := time.Duration(c.cfg.HandlerTimeoutSeconds) * time.Second
+	handlerCtx, cancel := context.WithTimeout(ctx, handlerTimeout)
+	defer cancel()
+
 	if c.handler != nil {
 		// Create message-scoped context for handler execution
-		handlerTimeout := time.Duration(c.cfg.HandlerTimeoutSeconds) * time.Second
-		handlerCtx, cancel := context.WithTimeout(ctx, handlerTimeout)
-		defer cancel()
-
 		if err := c.handler.Run(handlerCtx, m); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				zap.S().Warn("handler execution timed out", zap.Duration("timeout", handlerTimeout))
@@ -120,11 +120,7 @@ func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
 		m.Success()
 	}
 
-	// Use background context for cleanup to ensure it completes even during shutdown
-	deleteTimeout := time.Duration(c.cfg.DeleteTimeoutSeconds) * time.Second
-	deleteCtx, deleteCancel := context.WithTimeout(context.Background(), deleteTimeout)
-	defer deleteCancel()
-	return c.delete(deleteCtx, m) //MESSAGE CONSUMED
+	return c.delete(handlerCtx, m) //MESSAGE CONSUMED
 }
 
 func (c *Consumer) delete(ctx context.Context, m *Message) error {
