@@ -114,7 +114,12 @@ func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
 		m.Success()
 	}
 
-	return c.delete(handlerCtx, m) //MESSAGE CONSUMED
+	// Introducing a new context for the delete operation to avoid the following issue:
+	// During a graceful shutdown, the caller's main context (ctx) is canceled while a worker is processing (c.handler.Run) an in-flight message.
+	// The handler finishes, but the DeleteMessage call fails because its context is already canceled.
+	// The above behavior can lead to double-processing of messages.
+	deleteCtx := context.Background()
+	return c.delete(deleteCtx, m) //MESSAGE CONSUMED
 }
 
 func (c *Consumer) delete(ctx context.Context, m *Message) error {
