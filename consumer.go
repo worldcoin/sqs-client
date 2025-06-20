@@ -120,6 +120,11 @@ func (c *Consumer) handleMsg(ctx context.Context, m *Message) error {
 func (c *Consumer) delete(ctx context.Context, m *Message) error {
 	_, err := c.sqs.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: &c.cfg.QueueURL, ReceiptHandle: m.ReceiptHandle})
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			zap.S().With(zap.Error(err)).Warn("context cancelled while deleting message")
+			return nil
+		}
+
 		zap.S().With(zap.Error(err)).Error("error removing message")
 		return fmt.Errorf("unable to delete message from the queue: %w", err)
 	}
