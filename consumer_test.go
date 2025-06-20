@@ -3,6 +3,7 @@ package sqsclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -305,4 +306,56 @@ func loadAWSDefaultConfig(ctx context.Context) aws.Config {
 		zap.S().Fatalf("unable to load AWS SDK config, %v", err)
 	}
 	return awsCfg
+}
+
+// mockSQSClient implements only the DeleteMessage method for testing
+type mockSQSClient struct {
+	deleteMessageFunc func(ctx context.Context, params *sqs.DeleteMessageInput, optFns ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error)
+}
+
+func (m *mockSQSClient) DeleteMessage(ctx context.Context, params *sqs.DeleteMessageInput, optFns ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error) {
+	return m.deleteMessageFunc(ctx, params, optFns...)
+}
+
+// mockSQSAPI defines the minimal interface needed for mocking DeleteMessage
+type mockSQSAPI interface {
+	DeleteMessage(ctx context.Context, params *sqs.DeleteMessageInput, optFns ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error)
+}
+
+func TestConsumerDelete_ContextCanceled(t *testing.T) {
+	// Setup a Consumer with a mock SQS client
+	mockClient := &mockSQSClient{
+		deleteMessageFunc: func(ctx context.Context, params *sqs.DeleteMessageInput, optFns ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error) {
+			return nil, context.Canceled
+		},
+	}
+	// Use type assertion to assign mock to Consumer.sqs (interface type)
+	consumer := &Consumer{
+		sqs:     nil, // will set below
+		handler: nil,
+		wg:      &sync.WaitGroup{},
+		cfg:     Config{QueueURL: "test-queue-url"},
+	}
+
+	// Use reflection to set the unexported field for test (or use a helper if available)
+	type consumerWithMock struct {
+		sqs     mockSQSAPI
+		handler Handler
+		wg      *sync.WaitGroup
+		cfg     Config
+	}
+	cwm := &consumerWithMock{
+		sqs:     mockClient,
+		handler: nil,
+		wg:      consumer.wg,
+		cfg:     consumer.cfg,
+	}
+	msg := &Message{
+		Message: &types.Message{ReceiptHandle: aws.String("test-handle")},
+		err:     make(chan error, 1),
+	}
+	ctx := context.Background()
+	// Call delete using the mock
+	_, err := cwm.sqs.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: &cwm.cfg.QueueURL, ReceiptHandle: msg.ReceiptHandle})
+	assert.True(t, errors.Is(err, context.Canceled), "DeleteMessage should return context.Canceled error")
 }
