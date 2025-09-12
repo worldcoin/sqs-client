@@ -1,4 +1,4 @@
-package sqsclient
+package consumer
 
 import (
 	"context"
@@ -22,12 +22,12 @@ type Config struct {
 
 type Consumer struct {
 	sqs     *sqs.Client
-	handler Handler
+	handler sqsclient.Handler
 	wg      *sync.WaitGroup
 	cfg     Config
 }
 
-func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) (*Consumer, error) {
+func NewConsumer(awsCfg aws.Config, cfg Config, handler sqsclient.Handler) (*Consumer, error) {
 	if cfg.VisibilityTimeoutSeconds < 30 {
 		return nil, errors.New("VisibilityTimeoutSeconds must be greater or equal to 30")
 	}
@@ -81,7 +81,7 @@ loop:
 
 			for _, msg := range output.Messages {
 				localMsg := msg // Create a local copy to avoid reference issues
-				jobs <- newMessage(&localMsg)
+				jobs <- sqsclient.newMessage(&localMsg)
 			}
 		}
 	}

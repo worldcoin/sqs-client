@@ -1,4 +1,4 @@
-package sqsclient
+package consumer
 
 import (
 	"encoding/json"

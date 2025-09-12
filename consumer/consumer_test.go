@@ -1,4 +1,4 @@
-package sqsclient
+package consumer
 
 import (
 	"context"
@@ -340,7 +340,7 @@ func TestConsumerDelete_ContextCanceled(t *testing.T) {
 	// Use reflection to set the unexported field for test (or use a helper if available)
 	type consumerWithMock struct {
 		sqs     mockSQSAPI
-		handler Handler
+		handler sqsclient.Handler
 		wg      *sync.WaitGroup
 		cfg     Config
 	}

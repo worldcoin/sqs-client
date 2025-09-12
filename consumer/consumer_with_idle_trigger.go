@@ -1,4 +1,4 @@
-package sqsclient
+package consumer
 
 import (
 	"context"
@@ -15,14 +15,14 @@ import (
 
 type ConsumerWithIdleTrigger struct {
 	sqs                       *sqs.Client
-	handler                   HandlerWithIdleTrigger
+	handler                   sqsclient.HandlerWithIdleTrigger
 	wg                        *sync.WaitGroup
 	cfg                       Config
 	idleDurationTimeout       time.Duration
 	sqsReceiveWaitTimeSeconds int32
 }
 
-func NewConsumerWithIdleTrigger(awsCfg aws.Config, cfg Config, handler HandlerWithIdleTrigger, idleDurationTimeout time.Duration, sqsReceiveWaitTimeSeconds int32) (*ConsumerWithIdleTrigger, error) {
+func NewConsumerWithIdleTrigger(awsCfg aws.Config, cfg Config, handler sqsclient.HandlerWithIdleTrigger, idleDurationTimeout time.Duration, sqsReceiveWaitTimeSeconds int32) (*ConsumerWithIdleTrigger, error) {
 	if cfg.VisibilityTimeoutSeconds < 30 {
 		return nil, errors.New("VisibilityTimeoutSeconds must be greater or equal to 30")
 	}
@@ -56,7 +56,7 @@ loop:
 		case <-timeout.C:
 			zap.S().Info("No new messages for timeout duration, triggering timeout logic")
 			// a nil message should trigger a timeout
-			jobs <- newMessage(nil)
+			jobs <- sqsclient.newMessage(nil)
 			// Reset the timeout
 			timeout.Reset(c.idleDurationTimeout)
 		default:
@@ -83,7 +83,7 @@ loop:
 			}
 
 			for _, m := range output.Messages {
-				jobs <- newMessage(&m)
+				jobs <- sqsclient.newMessage(&m)
 			}
 		}
 	}
