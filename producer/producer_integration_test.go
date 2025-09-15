@@ -2,7 +2,8 @@ package producer
 
 import (
 	"context"
-	"fmt"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,8 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-
-	"github.com/worldcoin/sqs-client/internal/localstacktest"
 )
 
 type ProducerIntegrationTestSuite struct {
@@ -27,32 +26,32 @@ type ProducerIntegrationTestSuite struct {
 }
 
 func TestProducerIntegrationSuite(t *testing.T) {
-	port, cleanup, err := localstacktest.NewCloudProviderWebService("sqs")
-	require.NoError(t, err)
-
-	cfg := mustLoadAWSConfig(t, fmt.Sprintf("http://sqs.localhost.localstack.cloud:%s", port), "us-east-1")
+	cfg := loadAWSDefaultConfig(t)
 	client := sqs.NewFromConfig(cfg)
 
 	s := new(ProducerIntegrationTestSuite)
 	s.client = client
-	s.cleanup = cleanup
 
 	suite.Run(t, s)
 }
 
-func mustLoadAWSConfig(t *testing.T, endpoint, region string) aws.Config {
+func loadAWSDefaultConfig(t *testing.T) aws.Config {
 	t.Helper()
+	const region = "us-east-1"
+	endpoint := os.Getenv("AWS_ENDPOINT")
+	if endpoint == "" {
+		endpoint = "http://localhost:4566"
+	}
 	opts := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(region),
-		awsconfig.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(func(service, _ string, _ ...interface{}) (aws.Endpoint, error) {
-			// Force SQS endpoint
+		awsconfig.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(func(_, _ string, _ ...interface{}) (aws.Endpoint, error) {
 			return aws.Endpoint{
 				URL:           endpoint,
 				PartitionID:   "aws",
 				SigningRegion: region,
 			}, nil
 		})),
-		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("aws", "aws", "aws")),
 	}
 	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), opts...)
 	require.NoError(t, err)
@@ -63,13 +62,15 @@ func (s *ProducerIntegrationTestSuite) SetupSuite() {
 	ctx := context.Background()
 
 	// Create a standard queue
-	out, err := s.client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String("producer-int-standard")})
+	stdName := strings.ToLower("producer-int-standard")
+	out, err := s.client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(stdName)})
 	require.NoError(s.T(), err)
 	s.queueURL = aws.ToString(out.QueueUrl)
 
 	// Create a FIFO queue
+	fifoName := strings.ToLower("producer-int.fifo")
 	outFifo, err := s.client.CreateQueue(ctx, &sqs.CreateQueueInput{
-		QueueName: aws.String("producer-int.fifo"),
+		QueueName: aws.String(fifoName),
 		Attributes: map[string]string{
 			"FifoQueue":                 "true",
 			"ContentBasedDeduplication": "true",
@@ -77,12 +78,6 @@ func (s *ProducerIntegrationTestSuite) SetupSuite() {
 	})
 	require.NoError(s.T(), err)
 	s.fifoQueueURL = aws.ToString(outFifo.QueueUrl)
-}
-
-func (s *ProducerIntegrationTestSuite) TearDownSuite() {
-	if s.cleanup != nil {
-		s.cleanup()
-	}
 }
 
 func (s *ProducerIntegrationTestSuite) TearDownTest() {
@@ -128,7 +123,7 @@ func (s *ProducerIntegrationTestSuite) TestSendMessage_FIFOQueue() {
 		QueueUrl:            aws.String(s.fifoQueueURL),
 		MaxNumberOfMessages: 1,
 		WaitTimeSeconds:     1,
-		AttributeNames:      []types.QueueAttributeName{types.QueueAttributeName("MessageGroupId")},
+		AttributeNames:      []types.QueueAttributeName{"MessageGroupId"},
 	})
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), 1, len(rm.Messages))
