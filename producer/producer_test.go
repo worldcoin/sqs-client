@@ -26,18 +26,6 @@ func TestSendMessageToQueue(t *testing.T) {
 	dedup := "dedup-1"
 	group := "group-1"
 
-	sqsInputStdQueue := &sqs.SendMessageInput{
-		MessageBody: aws.String("hello"),
-		QueueUrl:    aws.String(queueStd),
-	}
-
-	sqsInputFifoQueue := &sqs.SendMessageInput{
-		MessageBody:            aws.String("hello"),
-		QueueUrl:               aws.String(queueFIFO),
-		MessageDeduplicationId: aws.String(dedup),
-		MessageGroupId:         aws.String(group),
-	}
-
 	tests := map[string]struct {
 		queueURL string
 		isFIFO   bool
@@ -52,7 +40,7 @@ func TestSendMessageToQueue(t *testing.T) {
 			mocks: func(m mocks) {
 				m.sqs.
 					EXPECT().
-					SendMessage(gomock.Any(), sqsInputStdQueue).
+					SendMessage(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, in *sqs.SendMessageInput, _ ...func(*sqs.Options)) (*sqs.SendMessageOutput, error) {
 						require.NotNil(t, in)
 						assert.Equal(t, queueStd, aws.ToString(in.QueueUrl))
@@ -70,10 +58,28 @@ func TestSendMessageToQueue(t *testing.T) {
 			mocks: func(m mocks) {
 				m.sqs.
 					EXPECT().
-					SendMessage(gomock.Any(), sqsInputStdQueue).
+					SendMessage(gomock.Any(), gomock.Any()).
 					Return(nil, errors.New("sqs error"))
 			},
 			expErr: errors.New("error sending message to queue https://sqs.us-east-1.amazonaws.com/123456789012/test-queue, reason: sqs error"),
+		},
+		"standard - success with message group id": {
+			queueURL: queueStd,
+			isFIFO:   false,
+			msg:      SQSMessage{MessageBody: "hello", MessageGroupID: &group},
+			mocks: func(m mocks) {
+				m.sqs.
+					EXPECT().
+					SendMessage(gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, in *sqs.SendMessageInput, _ ...func(*sqs.Options)) (*sqs.SendMessageOutput, error) {
+						require.NotNil(t, in)
+						assert.Equal(t, queueStd, aws.ToString(in.QueueUrl))
+						assert.Equal(t, "hello", aws.ToString(in.MessageBody))
+						assert.Nil(t, in.MessageDeduplicationId)
+						assert.Equal(t, group, aws.ToString(in.MessageGroupId))
+						return &sqs.SendMessageOutput{}, nil
+					})
+			},
 		},
 		"missing message body - FIFO queue": {
 			queueURL: queueFIFO,
@@ -96,12 +102,12 @@ func TestSendMessageToQueue(t *testing.T) {
 			mocks:    func(_ mocks) {},
 			expErr:   errors.New("invalid sqs message: FIFO queue requires MessageGroupId"),
 		},
-		"standard - FIFO fields set": {
+		"standard - dedup id set": {
 			queueURL: queueStd,
 			isFIFO:   false,
 			msg:      SQSMessage{MessageBody: "payload", MessageDeduplicationID: &dedup, MessageGroupID: &group},
 			mocks:    func(_ mocks) {},
-			expErr:   errors.New("invalid sqs message: FIFO fields set for a standard queue"),
+			expErr:   errors.New("invalid sqs message: message deduplication id set for a standard queue"),
 		},
 		"FIFO - success with group and dedup": {
 			queueURL: queueFIFO,
@@ -110,7 +116,7 @@ func TestSendMessageToQueue(t *testing.T) {
 			mocks: func(m mocks) {
 				m.sqs.
 					EXPECT().
-					SendMessage(gomock.Any(), sqsInputFifoQueue).
+					SendMessage(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, in *sqs.SendMessageInput, _ ...func(*sqs.Options)) (*sqs.SendMessageOutput, error) {
 						require.NotNil(t, in)
 						assert.Equal(t, queueFIFO, aws.ToString(in.QueueUrl))

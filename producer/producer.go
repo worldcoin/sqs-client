@@ -79,19 +79,19 @@ func (p *Producer) SendMessageToQueue(ctx context.Context, msg SQSMessage) error
 }
 
 func validateSQSMessage(msg SQSMessage, isFIFO bool) error {
-	if msg.MessageBody == "" {
-		return fmt.Errorf("message body cannot be empty")
-	}
-	if isFIFO {
-		// validation for FIFO queues
-		if msg.MessageGroupID == nil || *msg.MessageGroupID == "" {
-			return errors.New("FIFO queue requires MessageGroupId")
-		}
-	} else {
-		// validation for standard queues
-		if msg.MessageGroupID != nil || msg.MessageDeduplicationID != nil {
-			return errors.New("FIFO fields set for a standard queue")
-		}
-	}
-	return nil
+    if msg.MessageBody == "" {
+        return fmt.Errorf("message body cannot be empty")
+    }
+    if isFIFO {
+        // validation for FIFO queues
+        if msg.MessageGroupID == nil || *msg.MessageGroupID == "" {
+            return errors.New("FIFO queue requires MessageGroupId")
+        }
+        return nil
+    }
+    // standard queues: allow MessageGroupID (fair-queues behavior), disallow MessageDeduplicationID
+    if msg.MessageDeduplicationID != nil {
+        return errors.New("message deduplication id set for a standard queue")
+    }
+    return nil
 }
