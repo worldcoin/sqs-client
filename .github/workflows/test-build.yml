@@ -35,5 +35,5 @@ jobs:
       - name: Run unit tests (no integration tag)
         run: go test ./...
 
-      #- name: Run producer integration tests
-      #  run: go test -tags=integration -race -count=1 -v ./producer
+      - name: Run producer integration tests
+        run: go test -tags=integration ./...
