@@ -96,7 +96,7 @@ func (s *ProducerIntegrationTestSuite) TestSendMessage_StandardQueue() {
 	ctx := context.Background()
 	p := NewProducerStandard(s.client, s.queueURL)
 
-	err := p.SendMessageToQueue(ctx, SQSMessage{messageBody: "hello"})
+    err := p.SendMessageToQueue(ctx, SQSMessage{MessageBody: "hello"})
 	assert.NoError(s.T(), err)
 
 	// Verify the message is in the queue
@@ -115,7 +115,7 @@ func (s *ProducerIntegrationTestSuite) TestSendMessage_FIFOQueue() {
 
 	group := "grp-1"
 	dedup := "ddp-1"
-	err := p.SendMessageToQueue(ctx, SQSMessage{messageBody: "hello", messageGroupID: &group, messageDeduplicationID: &dedup})
+    err := p.SendMessageToQueue(ctx, SQSMessage{MessageBody: "hello", MessageGroupID: &group, MessageDeduplicationID: &dedup})
 	assert.NoError(s.T(), err)
 
 	// Verify the message is in the queue

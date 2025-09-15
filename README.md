@@ -56,7 +56,7 @@ func main() {
     sqsClient := sqs.NewFromConfig(awsCfg)
 
     p := producer.NewProducerStandard(sqsClient, "https://sqs.us-east-1.amazonaws.com/123456789012/standard-queue")
-    msg := producer.SQSMessage{messageBody: "hello world"}
+    msg := producer.SQSMessage{MessageBody: "hello world"}
     _ = p.SendMessageToQueue(ctx, msg)
 }
 ```
@@ -66,10 +66,10 @@ Usage (FIFO queue):
 group := "my-group"
 dedup := "my-dedup-id" // optional if content-based deduplication is enabled on the queue
 p := producer.NewProducerFIFO(sqsClient, "https://sqs.us-east-1.amazonaws.com/123456789012/my-queue.fifo")
-msg := producer.SQSMessage{messageBody: "hello", messageGroupID: &group, messageDeduplicationID: &dedup}
+msg := producer.SQSMessage{MessageBody: "hello", MessageGroupID: &group, MessageDeduplicationID: &dedup}
 _ = p.SendMessageToQueue(ctx, msg)
 ```
 
 Notes:
-- Standard queues must not set `messageGroupID` or `messageDeduplicationID`.
-- FIFO queues require a non-empty `messageGroupID`.
+- Standard queues must not set `MessageGroupID` or `MessageDeduplicationID`.
+- FIFO queues require a non-empty `MessageGroupID`.

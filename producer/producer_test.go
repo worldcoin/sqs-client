@@ -38,21 +38,21 @@ func TestSendMessageToQueue(t *testing.T) {
 		MessageGroupId:         aws.String(group),
 	}
 
-	tests := map[string]struct {
-		queueURL string
-		isFifo   bool
-		msg      SQSMessage
-		mocks    func(m mocks)
-		expErr   error
-	}{
-		"standard - success": {
-			queueURL: stdQueue,
-			isFifo:   false,
-			msg:      SQSMessage{messageBody: "hello"},
-			mocks: func(m mocks) {
-				m.sqs.
-					EXPECT().
-					SendMessage(gomock.Any(), sqsInputStdQueue).
+    tests := map[string]struct {
+        queueURL string
+        isFifo   bool
+        msg      SQSMessage
+        mocks    func(m mocks)
+        expErr   error
+    }{
+        "standard - success": {
+            queueURL: stdQueue,
+            isFifo:   false,
+            msg:      SQSMessage{MessageBody: "hello"},
+            mocks: func(m mocks) {
+                m.sqs.
+                    EXPECT().
+                    SendMessage(gomock.Any(), sqsInputStdQueue).
 					DoAndReturn(func(_ context.Context, in *sqs.SendMessageInput, _ ...func(*sqs.Options)) (*sqs.SendMessageOutput, error) {
 						require.NotNil(t, in)
 						assert.Equal(t, stdQueue, aws.ToString(in.QueueUrl))
@@ -63,55 +63,55 @@ func TestSendMessageToQueue(t *testing.T) {
 					})
 			},
 		},
-		"standard - sqs error": {
-			queueURL: stdQueue,
-			isFifo:   false,
-			msg:      SQSMessage{messageBody: "hello"},
-			mocks: func(m mocks) {
-				m.sqs.
-					EXPECT().
-					SendMessage(gomock.Any(), sqsInputStdQueue).
-					Return(nil, errors.New("sqs error"))
-			},
-			expErr: errors.New("error sending message to queue https://sqs.us-east-1.amazonaws.com/123456789012/test-queue, reason: sqs error"),
-		},
-		"missing message body - fifo queue": {
-			queueURL: fifoQueue,
-			isFifo:   true,
-			msg:      SQSMessage{messageBody: ""},
-			mocks:    func(_ mocks) {},
-			expErr:   errors.New("invalid sqs message: message body cannot be empty"),
-		},
-		"missing message body - standard queue": {
-			queueURL: stdQueue,
-			isFifo:   false,
-			msg:      SQSMessage{messageBody: ""},
-			mocks:    func(_ mocks) {},
-			expErr:   errors.New("invalid sqs message: message body cannot be empty"),
-		},
-		"fifo - missing message group id": {
-			queueURL: fifoQueue,
-			isFifo:   true,
-			msg:      SQSMessage{messageBody: "payload"},
-			mocks:    func(_ mocks) {},
-			expErr:   errors.New("invalid sqs message: fifo queue requires MessageGroupId"),
-		},
-		"standard - fifo fields set": {
-			queueURL: stdQueue,
-			isFifo:   false,
-			msg:      SQSMessage{messageBody: "payload", messageDeduplicationID: &dedup, messageGroupID: &group},
-			mocks:    func(_ mocks) {},
-			expErr:   errors.New("invalid sqs message: fifo fields set for a standard queue"),
-		},
-		"fifo - success with group and dedup": {
-			queueURL: fifoQueue,
-			isFifo:   true,
-			msg:      SQSMessage{messageBody: "hello", messageDeduplicationID: &dedup, messageGroupID: &group},
-			mocks: func(m mocks) {
-				m.sqs.
-					EXPECT().
-					SendMessage(gomock.Any(), sqsInputFifoQueue).
-					DoAndReturn(func(_ context.Context, in *sqs.SendMessageInput, _ ...func(*sqs.Options)) (*sqs.SendMessageOutput, error) {
+        "standard - sqs error": {
+            queueURL: stdQueue,
+            isFifo:   false,
+            msg:      SQSMessage{MessageBody: "hello"},
+            mocks: func(m mocks) {
+                m.sqs.
+                    EXPECT().
+                    SendMessage(gomock.Any(), sqsInputStdQueue).
+                    Return(nil, errors.New("sqs error"))
+            },
+            expErr: errors.New("error sending message to queue https://sqs.us-east-1.amazonaws.com/123456789012/test-queue, reason: sqs error"),
+        },
+        "missing message body - fifo queue": {
+            queueURL: fifoQueue,
+            isFifo:   true,
+            msg:      SQSMessage{MessageBody: ""},
+            mocks:    func(_ mocks) {},
+            expErr:   errors.New("invalid sqs message: message body cannot be empty"),
+        },
+        "missing message body - standard queue": {
+            queueURL: stdQueue,
+            isFifo:   false,
+            msg:      SQSMessage{MessageBody: ""},
+            mocks:    func(_ mocks) {},
+            expErr:   errors.New("invalid sqs message: message body cannot be empty"),
+        },
+        "fifo - missing message group id": {
+            queueURL: fifoQueue,
+            isFifo:   true,
+            msg:      SQSMessage{MessageBody: "payload"},
+            mocks:    func(_ mocks) {},
+            expErr:   errors.New("invalid sqs message: fifo queue requires MessageGroupId"),
+        },
+        "standard - fifo fields set": {
+            queueURL: stdQueue,
+            isFifo:   false,
+            msg:      SQSMessage{MessageBody: "payload", MessageDeduplicationID: &dedup, MessageGroupID: &group},
+            mocks:    func(_ mocks) {},
+            expErr:   errors.New("invalid sqs message: fifo fields set for a standard queue"),
+        },
+        "fifo - success with group and dedup": {
+            queueURL: fifoQueue,
+            isFifo:   true,
+            msg:      SQSMessage{MessageBody: "hello", MessageDeduplicationID: &dedup, MessageGroupID: &group},
+            mocks: func(m mocks) {
+                m.sqs.
+                    EXPECT().
+                    SendMessage(gomock.Any(), sqsInputFifoQueue).
+                    DoAndReturn(func(_ context.Context, in *sqs.SendMessageInput, _ ...func(*sqs.Options)) (*sqs.SendMessageOutput, error) {
 						require.NotNil(t, in)
 						assert.Equal(t, fifoQueue, aws.ToString(in.QueueUrl))
 						assert.Equal(t, "hello", aws.ToString(in.MessageBody))

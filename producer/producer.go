@@ -41,21 +41,21 @@ func NewProducerFIFO(sqsAPI sqsAPI, queueURL string) *Producer {
 // It can be used for sending messages for both fifo and standard queues.
 // In case of standard messageDeduplicationID is going to be nil.
 type SQSMessage struct {
-	messageBody            string
-	messageDeduplicationID *string
-	messageGroupID         *string
+    MessageBody            string
+    MessageDeduplicationID *string
+    MessageGroupID         *string
 }
 
 func (m *SQSMessage) toSQSInput() *sqs.SendMessageInput {
-	res := sqs.SendMessageInput{
-		MessageBody: &m.messageBody,
-	}
-	if m.messageDeduplicationID != nil {
-		res.MessageDeduplicationId = m.messageDeduplicationID
-	}
-	if m.messageGroupID != nil {
-		res.MessageGroupId = m.messageGroupID
-	}
+    res := sqs.SendMessageInput{
+        MessageBody: &m.MessageBody,
+    }
+    if m.MessageDeduplicationID != nil {
+        res.MessageDeduplicationId = m.MessageDeduplicationID
+    }
+    if m.MessageGroupID != nil {
+        res.MessageGroupId = m.MessageGroupID
+    }
 
 	return &res
 }
@@ -79,19 +79,19 @@ func (p *Producer) SendMessageToQueue(ctx context.Context, msg SQSMessage) error
 }
 
 func validateSQSMessage(msg SQSMessage, isFifo bool) error {
-	if msg.messageBody == "" {
-		return fmt.Errorf("message body cannot be empty")
-	}
-	if isFifo {
-		// validation for fifo queues
-		if msg.messageGroupID == nil || *msg.messageGroupID == "" {
-			return errors.New("fifo queue requires MessageGroupId")
-		}
-	} else {
-		// validation for standard queues
-		if msg.messageGroupID != nil || msg.messageDeduplicationID != nil {
-			return errors.New("fifo fields set for a standard queue")
-		}
-	}
-	return nil
+    if msg.MessageBody == "" {
+        return fmt.Errorf("message body cannot be empty")
+    }
+    if isFifo {
+        // validation for fifo queues
+        if msg.MessageGroupID == nil || *msg.MessageGroupID == "" {
+            return errors.New("fifo queue requires MessageGroupId")
+        }
+    } else {
+        // validation for standard queues
+        if msg.MessageGroupID != nil || msg.MessageDeduplicationID != nil {
+            return errors.New("fifo fields set for a standard queue")
+        }
+    }
+    return nil
 }
