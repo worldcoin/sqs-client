@@ -94,7 +94,7 @@ func (s *ProducerIntegrationTestSuite) TearDownTest() {
 
 func (s *ProducerIntegrationTestSuite) TestSendMessage_StandardQueue() {
 	ctx := context.Background()
-	p := NewProducer(s.client, s.queueURL, false)
+	p := NewProducerStandard(s.client, s.queueURL)
 
 	err := p.SendMessageToQueue(ctx, SQSMessage{messageBody: "hello"})
 	assert.NoError(s.T(), err)
@@ -111,7 +111,7 @@ func (s *ProducerIntegrationTestSuite) TestSendMessage_StandardQueue() {
 
 func (s *ProducerIntegrationTestSuite) TestSendMessage_FIFOQueue() {
 	ctx := context.Background()
-	p := NewProducer(s.client, s.fifoQueueURL, true)
+	p := NewProducerFIFO(s.client, s.fifoQueueURL)
 
 	group := "grp-1"
 	dedup := "ddp-1"

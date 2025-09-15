@@ -128,7 +128,12 @@ func TestSendMessageToQueue(t *testing.T) {
 			m := mocks{sqs: NewMocksqsAPI(ctrl)}
 			tt.mocks(m)
 
-			p := NewProducer(m.sqs, tt.queueURL, tt.isFifo)
+			var p *Producer
+			if tt.isFifo {
+				p = NewProducerFIFO(m.sqs, tt.queueURL)
+			} else {
+				p = NewProducerStandard(m.sqs, tt.queueURL)
+			}
 
 			err := p.SendMessageToQueue(ctx, tt.msg)
 			if tt.expErr != nil {

@@ -19,12 +19,21 @@ type Producer struct {
 	isFifo   bool
 }
 
-// NewProducer constructor of Producer.
-func NewProducer(sqsAPI sqsAPI, queueURL string, isFifo bool) *Producer {
+// NewProducerStandard constructor of Producer for standard queues.
+func NewProducerStandard(sqsAPI sqsAPI, queueURL string) *Producer {
 	return &Producer{
 		sqsAPI:   sqsAPI,
 		queueURL: queueURL,
-		isFifo:   isFifo,
+		isFifo:   false,
+	}
+}
+
+// NewProducerFIFO constructor of Producer for fifo queues.
+func NewProducerFIFO(sqsAPI sqsAPI, queueURL string) *Producer {
+	return &Producer{
+		sqsAPI:   sqsAPI,
+		queueURL: queueURL,
+		isFifo:   true,
 	}
 }
 
