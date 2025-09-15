@@ -62,8 +62,11 @@ func (p *Producer) SendMessageToQueue(ctx context.Context, msg SQSMessage) error
 	input := msg.toSQSInput()
 	input.QueueUrl = &p.queueURL
 	_, err = p.sqsAPI.SendMessage(ctx, input)
+	if err != nil {
+		return fmt.Errorf("error sending message to queue %s, reason: %w", p.queueURL, err)
+	}
 
-	return fmt.Errorf("error sending message to the queue: %w", err)
+	return nil
 }
 
 func validateSQSMessage(msg SQSMessage, isFifo bool) error {
@@ -71,10 +74,12 @@ func validateSQSMessage(msg SQSMessage, isFifo bool) error {
 		return fmt.Errorf("message body cannot be empty")
 	}
 	if isFifo {
+		// validation for fifo queues
 		if msg.messageGroupID == nil || *msg.messageGroupID == "" {
 			return errors.New("fifo queue requires MessageGroupId")
 		}
 	} else {
+		// validation for standard queues
 		if msg.messageGroupID != nil || msg.messageDeduplicationID != nil {
 			return errors.New("fifo fields set for a standard queue")
 		}
