@@ -21,8 +21,8 @@ type ProducerIntegrationTestSuite struct {
 	suite.Suite
 	client       *sqs.Client
 	cleanup      func()
-	queueURL     string
-	fifoQueueURL string
+	queueURLStd  string
+	queueURLFIFO string
 }
 
 func TestProducerIntegrationSuite(t *testing.T) {
@@ -62,46 +62,46 @@ func (s *ProducerIntegrationTestSuite) SetupSuite() {
 	ctx := context.Background()
 
 	// Create a standard queue
-	stdName := strings.ToLower("producer-int-standard")
-	out, err := s.client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(stdName)})
+	nameStd := strings.ToLower("producer-int-standard")
+	out, err := s.client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(nameStd)})
 	require.NoError(s.T(), err)
-	s.queueURL = aws.ToString(out.QueueUrl)
+	s.queueURLStd = aws.ToString(out.QueueUrl)
 
 	// Create a FIFO queue
-	fifoName := strings.ToLower("producer-int.fifo")
-	outFifo, err := s.client.CreateQueue(ctx, &sqs.CreateQueueInput{
-		QueueName: aws.String(fifoName),
+	nameFIFO := strings.ToLower("producer-int.fifo")
+	outFIFO, err := s.client.CreateQueue(ctx, &sqs.CreateQueueInput{
+		QueueName: aws.String(nameFIFO),
 		Attributes: map[string]string{
 			"FifoQueue":                 "true",
 			"ContentBasedDeduplication": "true",
 		},
 	})
 	require.NoError(s.T(), err)
-	s.fifoQueueURL = aws.ToString(outFifo.QueueUrl)
+	s.queueURLFIFO = aws.ToString(outFIFO.QueueUrl)
 }
 
 func (s *ProducerIntegrationTestSuite) TearDownTest() {
 	ctx := context.Background()
 	// Purge both queues between tests
-	if s.queueURL != "" {
-		_, _ = s.client.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: aws.String(s.queueURL)})
+	if s.queueURLStd != "" {
+		_, _ = s.client.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: aws.String(s.queueURLStd)})
 	}
-	if s.fifoQueueURL != "" {
-		_, _ = s.client.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: aws.String(s.fifoQueueURL)})
+	if s.queueURLFIFO != "" {
+		_, _ = s.client.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: aws.String(s.queueURLFIFO)})
 	}
 	time.Sleep(500 * time.Millisecond)
 }
 
 func (s *ProducerIntegrationTestSuite) TestSendMessage_StandardQueue() {
 	ctx := context.Background()
-	p := NewProducerStandard(s.client, s.queueURL)
+	p := NewProducerStandard(s.client, s.queueURLStd)
 
-    err := p.SendMessageToQueue(ctx, SQSMessage{MessageBody: "hello"})
+	err := p.SendMessageToQueue(ctx, SQSMessage{MessageBody: "hello"})
 	assert.NoError(s.T(), err)
 
 	// Verify the message is in the queue
 	rm, err := s.client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-		QueueUrl:            aws.String(s.queueURL),
+		QueueUrl:            aws.String(s.queueURLStd),
 		MaxNumberOfMessages: 1,
 		WaitTimeSeconds:     1,
 	})
@@ -111,16 +111,16 @@ func (s *ProducerIntegrationTestSuite) TestSendMessage_StandardQueue() {
 
 func (s *ProducerIntegrationTestSuite) TestSendMessage_FIFOQueue() {
 	ctx := context.Background()
-	p := NewProducerFIFO(s.client, s.fifoQueueURL)
+	p := NewProducerFIFO(s.client, s.queueURLFIFO)
 
 	group := "grp-1"
 	dedup := "ddp-1"
-    err := p.SendMessageToQueue(ctx, SQSMessage{MessageBody: "hello", MessageGroupID: &group, MessageDeduplicationID: &dedup})
+	err := p.SendMessageToQueue(ctx, SQSMessage{MessageBody: "hello", MessageGroupID: &group, MessageDeduplicationID: &dedup})
 	assert.NoError(s.T(), err)
 
 	// Verify the message is in the queue
 	rm, err := s.client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-		QueueUrl:            aws.String(s.fifoQueueURL),
+		QueueUrl:            aws.String(s.queueURLFIFO),
 		MaxNumberOfMessages: 1,
 		WaitTimeSeconds:     1,
 		AttributeNames:      []types.QueueAttributeName{"MessageGroupId"},

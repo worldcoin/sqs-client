@@ -16,7 +16,7 @@ type sqsAPI interface {
 type Producer struct {
 	sqsAPI   sqsAPI
 	queueURL string
-	isFifo   bool
+	isFIFO   bool
 }
 
 // NewProducerStandard constructor of Producer for standard queues.
@@ -24,38 +24,38 @@ func NewProducerStandard(sqsAPI sqsAPI, queueURL string) *Producer {
 	return &Producer{
 		sqsAPI:   sqsAPI,
 		queueURL: queueURL,
-		isFifo:   false,
+		isFIFO:   false,
 	}
 }
 
-// NewProducerFIFO constructor of Producer for fifo queues.
+// NewProducerFIFO constructor of Producer for FIFO queues.
 func NewProducerFIFO(sqsAPI sqsAPI, queueURL string) *Producer {
 	return &Producer{
 		sqsAPI:   sqsAPI,
 		queueURL: queueURL,
-		isFifo:   true,
+		isFIFO:   true,
 	}
 }
 
 // SQSMessage struct to encapsulate all the parameters needed to construct an sqs message to be sent by the producer.
-// It can be used for sending messages for both fifo and standard queues.
+// It can be used for sending messages for both FIFO and standard queues.
 // In case of standard messageDeduplicationID is going to be nil.
 type SQSMessage struct {
-    MessageBody            string
-    MessageDeduplicationID *string
-    MessageGroupID         *string
+	MessageBody            string
+	MessageDeduplicationID *string
+	MessageGroupID         *string
 }
 
 func (m *SQSMessage) toSQSInput() *sqs.SendMessageInput {
-    res := sqs.SendMessageInput{
-        MessageBody: &m.MessageBody,
-    }
-    if m.MessageDeduplicationID != nil {
-        res.MessageDeduplicationId = m.MessageDeduplicationID
-    }
-    if m.MessageGroupID != nil {
-        res.MessageGroupId = m.MessageGroupID
-    }
+	res := sqs.SendMessageInput{
+		MessageBody: &m.MessageBody,
+	}
+	if m.MessageDeduplicationID != nil {
+		res.MessageDeduplicationId = m.MessageDeduplicationID
+	}
+	if m.MessageGroupID != nil {
+		res.MessageGroupId = m.MessageGroupID
+	}
 
 	return &res
 }
@@ -63,7 +63,7 @@ func (m *SQSMessage) toSQSInput() *sqs.SendMessageInput {
 // SendMessageToQueue receives the message as parameter and validates it,
 // constructs sqs input and sends the message to the configured queue url.
 func (p *Producer) SendMessageToQueue(ctx context.Context, msg SQSMessage) error {
-	err := validateSQSMessage(msg, p.isFifo)
+	err := validateSQSMessage(msg, p.isFIFO)
 	if err != nil {
 		return fmt.Errorf("invalid sqs message: %w", err)
 	}
@@ -78,20 +78,20 @@ func (p *Producer) SendMessageToQueue(ctx context.Context, msg SQSMessage) error
 	return nil
 }
 
-func validateSQSMessage(msg SQSMessage, isFifo bool) error {
-    if msg.MessageBody == "" {
-        return fmt.Errorf("message body cannot be empty")
-    }
-    if isFifo {
-        // validation for fifo queues
-        if msg.MessageGroupID == nil || *msg.MessageGroupID == "" {
-            return errors.New("fifo queue requires MessageGroupId")
-        }
-    } else {
-        // validation for standard queues
-        if msg.MessageGroupID != nil || msg.MessageDeduplicationID != nil {
-            return errors.New("fifo fields set for a standard queue")
-        }
-    }
-    return nil
+func validateSQSMessage(msg SQSMessage, isFIFO bool) error {
+	if msg.MessageBody == "" {
+		return fmt.Errorf("message body cannot be empty")
+	}
+	if isFIFO {
+		// validation for FIFO queues
+		if msg.MessageGroupID == nil || *msg.MessageGroupID == "" {
+			return errors.New("FIFO queue requires MessageGroupId")
+		}
+	} else {
+		// validation for standard queues
+		if msg.MessageGroupID != nil || msg.MessageDeduplicationID != nil {
+			return errors.New("FIFO fields set for a standard queue")
+		}
+	}
+	return nil
 }
