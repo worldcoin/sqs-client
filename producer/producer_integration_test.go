@@ -1,0 +1,130 @@
+package producer
+
+import (
+	"context"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
+)
+
+type ProducerIntegrationTestSuite struct {
+	suite.Suite
+	client       *sqs.Client
+	cleanup      func()
+	queueURLStd  string
+	queueURLFIFO string
+}
+
+func TestProducerIntegrationSuite(t *testing.T) {
+	cfg := loadAWSDefaultConfig(t)
+	client := sqs.NewFromConfig(cfg)
+
+	s := new(ProducerIntegrationTestSuite)
+	s.client = client
+
+	suite.Run(t, s)
+}
+
+func loadAWSDefaultConfig(t *testing.T) aws.Config {
+	t.Helper()
+	const region = "us-east-1"
+	endpoint := os.Getenv("AWS_ENDPOINT")
+	if endpoint == "" {
+		endpoint = "http://localhost:4566"
+	}
+	opts := []func(*awsconfig.LoadOptions) error{
+		awsconfig.WithRegion(region),
+		awsconfig.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(func(_, _ string, _ ...interface{}) (aws.Endpoint, error) {
+			return aws.Endpoint{
+				URL:           endpoint,
+				PartitionID:   "aws",
+				SigningRegion: region,
+			}, nil
+		})),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("aws", "aws", "aws")),
+	}
+	cfg, err := awsconfig.LoadDefaultConfig(context.Background(), opts...)
+	require.NoError(t, err)
+	return cfg
+}
+
+func (s *ProducerIntegrationTestSuite) SetupSuite() {
+	ctx := context.Background()
+
+	// Create a standard queue
+	nameStd := strings.ToLower("producer-int-standard")
+	out, err := s.client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(nameStd)})
+	require.NoError(s.T(), err)
+	s.queueURLStd = aws.ToString(out.QueueUrl)
+
+	// Create a FIFO queue
+	nameFIFO := strings.ToLower("producer-int.fifo")
+	outFIFO, err := s.client.CreateQueue(ctx, &sqs.CreateQueueInput{
+		QueueName: aws.String(nameFIFO),
+		Attributes: map[string]string{
+			"FifoQueue":                 "true",
+			"ContentBasedDeduplication": "true",
+		},
+	})
+	require.NoError(s.T(), err)
+	s.queueURLFIFO = aws.ToString(outFIFO.QueueUrl)
+}
+
+func (s *ProducerIntegrationTestSuite) TearDownTest() {
+	ctx := context.Background()
+	// Purge both queues between tests
+	if s.queueURLStd != "" {
+		_, _ = s.client.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: aws.String(s.queueURLStd)})
+	}
+	if s.queueURLFIFO != "" {
+		_, _ = s.client.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: aws.String(s.queueURLFIFO)})
+	}
+	time.Sleep(500 * time.Millisecond)
+}
+
+func (s *ProducerIntegrationTestSuite) TestSendMessage_StandardQueue() {
+	ctx := context.Background()
+	p := NewProducerStandard(s.client, s.queueURLStd)
+
+	err := p.SendMessageToQueue(ctx, SQSMessage{MessageBody: "hello"})
+	assert.NoError(s.T(), err)
+
+	// Verify the message is in the queue
+	rm, err := s.client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+		QueueUrl:            aws.String(s.queueURLStd),
+		MaxNumberOfMessages: 1,
+		WaitTimeSeconds:     1,
+	})
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), 1, len(rm.Messages))
+}
+
+func (s *ProducerIntegrationTestSuite) TestSendMessage_FIFOQueue() {
+	ctx := context.Background()
+	p := NewProducerFIFO(s.client, s.queueURLFIFO)
+
+	group := "grp-1"
+	dedup := "ddp-1"
+	err := p.SendMessageToQueue(ctx, SQSMessage{MessageBody: "hello", MessageGroupID: &group, MessageDeduplicationID: &dedup})
+	assert.NoError(s.T(), err)
+
+	// Verify the message is in the queue
+	rm, err := s.client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+		QueueUrl:            aws.String(s.queueURLFIFO),
+		MaxNumberOfMessages: 1,
+		WaitTimeSeconds:     1,
+		AttributeNames:      []types.QueueAttributeName{"MessageGroupId"},
+	})
+	require.NoError(s.T(), err)
+	assert.Equal(s.T(), 1, len(rm.Messages))
+}

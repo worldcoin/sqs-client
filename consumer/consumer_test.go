@@ -1,4 +1,4 @@
-package sqsclient
+package consumer
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	aws_config "github.com/aws/aws-sdk-go-v2/config"
+	awsConfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
@@ -281,8 +281,8 @@ func getQueueAttribute(t *testing.T, ctx context.Context, sqsClient *sqs.Client,
 }
 
 func loadAWSDefaultConfig(ctx context.Context) aws.Config {
-	options := []func(*aws_config.LoadOptions) error{
-		aws_config.WithRegion(awsRegion),
+	options := []func(*awsConfig.LoadOptions) error{
+		awsConfig.WithRegion(awsRegion),
 	}
 
 	awsEndpoint, found := os.LookupEnv("AWS_ENDPOINT")
@@ -290,7 +290,7 @@ func loadAWSDefaultConfig(ctx context.Context) aws.Config {
 		awsEndpoint = localAwsEndpoint
 	}
 
-	endpointResolver := aws_config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(func(_, _ string, _ ...interface{}) (aws.Endpoint, error) {
+	endpointResolver := awsConfig.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(func(_, _ string, _ ...interface{}) (aws.Endpoint, error) {
 		return aws.Endpoint{
 			URL:               awsEndpoint,
 			PartitionID:       "aws",
@@ -299,9 +299,9 @@ func loadAWSDefaultConfig(ctx context.Context) aws.Config {
 		}, nil
 	}))
 	options = append(options, endpointResolver)
-	options = append(options, aws_config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("aws", "aws", "aws")))
+	options = append(options, awsConfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("aws", "aws", "aws")))
 
-	awsCfg, err := aws_config.LoadDefaultConfig(ctx, options...)
+	awsCfg, err := awsConfig.LoadDefaultConfig(ctx, options...)
 	if err != nil {
 		zap.S().Fatalf("unable to load AWS SDK config, %v", err)
 	}

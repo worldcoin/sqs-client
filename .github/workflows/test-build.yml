@@ -3,20 +3,34 @@ on: [push]
 
 env:
   DEBIAN_FRONTEND: noninteractive
-  AWS_ENDPOINT: http://localstack:4566
+  AWS_ENDPOINT: http://localhost:4566
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    container: golang:1.21.6-alpine3.19
     services:
       localstack:
         image: localstack/localstack:latest
         env:
           SERVICES: sqs
           DEFAULT_REGION: us-east-1
+        ports:
+          - 4566:4566
     steps:
       - name: Check out repository code
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - run: apk add git gcc musl-dev
-      - run: go test ./...
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: true
+
+      - name: Wait for Localstack SQS to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -sSf http://localhost:4566/_localstack/health >/dev/null; then
+              echo "Localstack is healthy"; break; fi; sleep 2; done
+
+      - name: Run tests
+        run: go test ./...
