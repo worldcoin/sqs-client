@@ -37,7 +37,8 @@ func TestConsumeWithIdleTrigger(t *testing.T) {
 	awsCfg := loadAWSDefaultConfig(ctx)
 
 	queueName := strings.ToLower(t.Name())
-	queueUrl := createQueue(t, ctx, awsCfg, queueName)
+	sqsClient := sqs.NewFromConfig(awsCfg)
+	queueUrl := createQueue(t, ctx, sqsClient, queueName)
 
 	expectedMsg := TestMsg{Name: "TestName"}
 	expectedMsgAttributes := map[string]types.MessageAttributeValue{
@@ -92,7 +93,8 @@ func TestConsumeWithIdleTimeout_GracefulShutdown(t *testing.T) {
 	awsCfg := loadAWSDefaultConfig(ctx)
 
 	queueName := strings.ToLower(t.Name())
-	queueUrl := createQueue(t, ctx, awsCfg, queueName)
+	sqsClient := sqs.NewFromConfig(awsCfg)
+	queueUrl := createQueue(t, ctx, sqsClient, queueName)
 
 	config := Config{
 		QueueURL:                 *queueUrl,
@@ -143,7 +145,8 @@ func TestConsumeWithIdleTimeout_TimesOut(t *testing.T) {
 	awsCfg := loadAWSDefaultConfig(ctx)
 
 	queueName := strings.ToLower(t.Name())
-	queueUrl := createQueue(t, ctx, awsCfg, queueName)
+	sqsClient := sqs.NewFromConfig(awsCfg)
+	queueUrl := createQueue(t, ctx, sqsClient, queueName)
 
 	config := Config{
 		QueueURL:                 *queueUrl,
@@ -175,7 +178,8 @@ func TestConsumeWithIdleTimeout_ErrorsIfConfigIssues(t *testing.T) {
 	awsCfg := loadAWSDefaultConfig(ctx)
 
 	queueName := strings.ToLower(t.Name())
-	queueUrl := createQueue(t, ctx, awsCfg, queueName)
+	sqsClient := sqs.NewFromConfig(awsCfg)
+	queueUrl := createQueue(t, ctx, sqsClient, queueName)
 
 	msgHandler := MsgHandlerWithIdleTrigger{
 		t:                 t,
@@ -214,7 +218,8 @@ func TestConsumeWithIdleTimeout_TimesOutAndConsumes(t *testing.T) {
 	awsCfg := loadAWSDefaultConfig(ctx)
 
 	queueName := strings.ToLower(t.Name())
-	queueUrl := createQueue(t, ctx, awsCfg, queueName)
+	sqsClient := sqs.NewFromConfig(awsCfg)
+	queueUrl := createQueue(t, ctx, sqsClient, queueName)
 
 	expectedMsg := TestMsg{Name: "TestName"}
 	expectedMsgAttributes := map[string]types.MessageAttributeValue{
