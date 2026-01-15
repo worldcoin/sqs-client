@@ -20,14 +20,23 @@ type Config struct {
 	HandlerTimeoutDuration   *time.Duration
 }
 
+type SQSClient interface {
+	ReceiveMessage(ctx context.Context, params *sqs.ReceiveMessageInput, optFns ...func(*sqs.Options)) (*sqs.ReceiveMessageOutput, error)
+	DeleteMessage(ctx context.Context, params *sqs.DeleteMessageInput, optFns ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error)
+}
+
 type Consumer struct {
-	sqs     *sqs.Client
+	sqs     SQSClient
 	handler Handler
 	wg      *sync.WaitGroup
 	cfg     Config
 }
 
 func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) (*Consumer, error) {
+	return NewConsumerWithSQSClient(sqs.NewFromConfig(awsCfg), cfg, handler)
+}
+
+func NewConsumerWithSQSClient(sqsClient SQSClient, cfg Config, handler Handler) (*Consumer, error) {
 	if cfg.VisibilityTimeoutSeconds < 30 {
 		return nil, errors.New("VisibilityTimeoutSeconds must be greater or equal to 30")
 	}
@@ -37,9 +46,8 @@ func NewConsumer(awsCfg aws.Config, cfg Config, handler Handler) (*Consumer, err
 		defaultTimeout := time.Duration(int32(float64(cfg.VisibilityTimeoutSeconds)*0.8)) * time.Second
 		cfg.HandlerTimeoutDuration = &defaultTimeout
 	}
-
 	return &Consumer{
-		sqs:     sqs.NewFromConfig(awsCfg),
+		sqs:     sqsClient,
 		handler: handler,
 		wg:      &sync.WaitGroup{},
 		cfg:     cfg,

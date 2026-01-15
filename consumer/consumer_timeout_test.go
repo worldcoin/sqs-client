@@ -2,11 +2,12 @@ package consumer
 
 import (
 	"context"
-	"github.com/aws/aws-sdk-go-v2/service/sqs"
-	"github.com/stretchr/testify/assert"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/stretchr/testify/assert"
 )
 
 type TimeoutTestHandler struct {
@@ -61,7 +62,8 @@ func TestConsume_HandlerTimeout(t *testing.T) {
 
 	awsCfg := loadAWSDefaultConfig(ctx)
 	queueName := strings.ToLower(t.Name())
-	queueUrl := createQueue(t, ctx, awsCfg, queueName)
+	sqsClient := sqs.NewFromConfig(awsCfg)
+	queueUrl := createQueue(t, ctx, sqsClient, queueName)
 
 	defaultTimeout := 2 * time.Second
 	config := Config{
@@ -77,13 +79,12 @@ func TestConsume_HandlerTimeout(t *testing.T) {
 		processingDelay: defaultTimeout + 1*time.Second, // 1 second longer than timeout
 	}
 
-	consumer, err := NewConsumer(awsCfg, config, handler)
+	consumer, err := NewConsumerWithSQSClient(sqsClient, config, handler)
 	assert.NoError(t, err)
-
 	go consumer.Consume(ctx)
 
 	t.Cleanup(func() {
-		_, err := consumer.sqs.PurgeQueue(context.Background(), &sqs.PurgeQueueInput{QueueUrl: queueUrl})
+		_, err := sqsClient.PurgeQueue(context.Background(), &sqs.PurgeQueueInput{QueueUrl: queueUrl})
 		if err != nil {
 			t.Logf("failed to purge queue: %v", err)
 		}
@@ -91,7 +92,7 @@ func TestConsume_HandlerTimeout(t *testing.T) {
 
 	// Send a test message
 	expectedMsg := TestMsg{Name: "TimeoutTest"}
-	sendTestMsg(t, ctx, consumer.sqs, queueUrl, expectedMsg)
+	sendTestMsg(t, ctx, sqsClient, queueUrl, expectedMsg)
 
 	// Wait for processing
 	time.Sleep(time.Second * 4)
@@ -103,6 +104,6 @@ func TestConsume_HandlerTimeout(t *testing.T) {
 	// Message should still be deleted despite timeout (because timeout is treated as an error)
 	// Wait a second more to ensure delete operation completes
 	time.Sleep(time.Second * 1)
-	messageCount := getNumOfVisibleMessagesInQueue(t, ctx, consumer.sqs, queueUrl)
+	messageCount := getNumOfVisibleMessagesInQueue(t, ctx, sqsClient, queueUrl)
 	assert.Equal(t, 0, messageCount, "Message should be deleted even after handler timeout")
 }

@@ -48,7 +48,8 @@ func TestConsume(t *testing.T) {
 	awsCfg := loadAWSDefaultConfig(ctx)
 
 	queueName := strings.ToLower(t.Name())
-	queueUrl := createQueue(t, ctx, awsCfg, queueName)
+	sqsClient := sqs.NewFromConfig(awsCfg)
+	queueUrl := createQueue(t, ctx, sqsClient, queueName)
 
 	expectedMsg := TestMsg{Name: "TestName"}
 	expectedMsgAttributes := map[string]types.MessageAttributeValue{
@@ -69,12 +70,14 @@ func TestConsume(t *testing.T) {
 		VisibilityTimeoutSeconds: visibilityTimeout,
 		BatchSize:                batchSize,
 	}
-	consumer, err := NewConsumer(awsCfg, config, msgHandler)
+
+	consumer, err := NewConsumerWithSQSClient(sqsClient, config, msgHandler)
 	assert.NoError(t, err)
+
 	go consumer.Consume(ctx)
 
 	t.Cleanup(func() {
-		_, err := consumer.sqs.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: queueUrl})
+		_, err := sqsClient.PurgeQueue(ctx, &sqs.PurgeQueueInput{QueueUrl: queueUrl})
 		if err != nil {
 			zap.S().Error("failed to purge queue")
 			t.FailNow()
@@ -83,7 +86,7 @@ func TestConsume(t *testing.T) {
 	})
 
 	// Send message to the queue
-	sendTestMsg(t, ctx, consumer.sqs, queueUrl, expectedMsg)
+	sendTestMsg(t, ctx, sqsClient, queueUrl, expectedMsg)
 
 	// Wait for the message to arrive
 	time.Sleep(time.Second * 1)
@@ -92,9 +95,9 @@ func TestConsume(t *testing.T) {
 	assert.Equal(t, 1, msgHandler.msgsReceivedCount)
 
 	// Check that received message was deleted from the queue
-	messageCount := getNumOfVisibleMessagesInQueue(t, ctx, consumer.sqs, queueUrl)
+	messageCount := getNumOfVisibleMessagesInQueue(t, ctx, sqsClient, queueUrl)
 	assert.Equal(t, 0, messageCount)
-	messageCount = getNumOfNotVisibleMessagesInQueue(t, ctx, consumer.sqs, queueUrl)
+	messageCount = getNumOfNotVisibleMessagesInQueue(t, ctx, sqsClient, queueUrl)
 	assert.Equal(t, 0, messageCount)
 }
 
@@ -103,7 +106,8 @@ func TestConsume_GracefulShutdown(t *testing.T) {
 	awsCfg := loadAWSDefaultConfig(ctx)
 
 	queueName := strings.ToLower(t.Name())
-	queueUrl := createQueue(t, ctx, awsCfg, queueName)
+	sqsClient := sqs.NewFromConfig(awsCfg)
+	queueUrl := createQueue(t, ctx, sqsClient, queueName)
 
 	config := Config{
 		QueueURL:                 *queueUrl,
@@ -111,8 +115,8 @@ func TestConsume_GracefulShutdown(t *testing.T) {
 		VisibilityTimeoutSeconds: visibilityTimeout,
 		BatchSize:                batchSize,
 	}
-	msgHandler := MsgHandler{}
-	consumer, err := NewConsumer(awsCfg, config, &msgHandler)
+	msgHandler := &MsgHandler{}
+	consumer, err := NewConsumerWithSQSClient(sqsClient, config, msgHandler)
 	assert.NoError(t, err)
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -153,7 +157,8 @@ func TestConsume_ErrorsIfConfigIssues(t *testing.T) {
 	awsCfg := loadAWSDefaultConfig(ctx)
 
 	queueName := strings.ToLower(t.Name())
-	queueUrl := createQueue(t, ctx, awsCfg, queueName)
+	sqsClient := sqs.NewFromConfig(awsCfg)
+	queueUrl := createQueue(t, ctx, sqsClient, queueName)
 
 	msgHandler := MsgHandlerWithIdleTrigger{
 		t:                 t,
@@ -180,17 +185,15 @@ func TestConsume_ErrorsIfConfigIssues(t *testing.T) {
 				VisibilityTimeoutSeconds: tt.visibilityTimeoutSeconds,
 				BatchSize:                batchSize,
 			}
-			consumer, err := NewConsumer(awsCfg, config, &msgHandler)
+			consumer, err := NewConsumerWithSQSClient(sqsClient, config, &msgHandler)
 			assert.Error(t, err)
 			assert.Nil(t, consumer)
 		})
 	}
 }
 
-func createQueue(t *testing.T, ctx context.Context, awsCfg aws.Config, queueName string) *string {
-	sqsSvc := sqs.NewFromConfig(awsCfg)
-
-	queue, err := sqsSvc.CreateQueue(ctx, &sqs.CreateQueueInput{
+func createQueue(t *testing.T, ctx context.Context, sqsClient *sqs.Client, queueName string) *string {
+	queue, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: aws.String(queueName),
 	})
 	if err != nil {
