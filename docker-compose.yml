@@ -2,7 +2,7 @@ version: "2.1"
 
 services:
   localstack:
-    image: localstack/localstack
+    image: public.ecr.aws/localstack/localstack:4.14
     ports:
       - "127.0.0.1:4566:4566"
     environment:

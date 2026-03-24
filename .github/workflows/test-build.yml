@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       localstack:
-        image: localstack/localstack:latest
+        image: public.ecr.aws/localstack/localstack:4.14
         env:
           SERVICES: sqs
           DEFAULT_REGION: us-east-1
