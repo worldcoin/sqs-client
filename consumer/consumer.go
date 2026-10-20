@@ -134,14 +134,10 @@ func (c *Consumer) Consume(ctx context.Context) {
 			continue
 		}
 		release(reserved - len(output.Messages))
-		for i, msg := range output.Messages {
+		// Reserved capacity guarantees the received batch fits; cancellation drains it.
+		for _, msg := range output.Messages {
 			localMsg := msg
-			select {
-			case <-ctx.Done():
-				release(len(output.Messages) - i)
-				return
-			case jobs <- receivedMessage{message: newMessage(&localMsg), deadline: deadline}:
-			}
+			jobs <- receivedMessage{message: newMessage(&localMsg), deadline: deadline}
 		}
 	}
 }
@@ -168,7 +164,7 @@ func (c *Consumer) handleMsg(ctx context.Context, m *Message, deadline time.Time
 	}
 	handlerCtx, cancel := context.WithDeadline(receiptCtx, handlerDeadline)
 	defer cancel()
-	if err := handlerCtx.Err(); err != nil {
+	if err := receiptContextError(handlerCtx); err != nil {
 		return m.ErrorResponse(err)
 	}
 	if c.handler != nil {
@@ -179,11 +175,8 @@ func (c *Consumer) handleMsg(ctx context.Context, m *Message, deadline time.Time
 	}
 	processingDuration = time.Since(started)
 	// A handler that ignores cancellation must never acknowledge expired work.
-	if err := handlerCtx.Err(); err != nil {
+	if err := receiptContextError(handlerCtx); err != nil {
 		return m.ErrorResponse(err)
-	}
-	if !time.Now().Before(handlerDeadline) {
-		return m.ErrorResponse(context.DeadlineExceeded)
 	}
 	operation = "DeleteMessage"
 	m.Success()
@@ -197,12 +190,23 @@ func (c *Consumer) handleMsg(ctx context.Context, m *Message, deadline time.Time
 }
 
 func (c *Consumer) delete(ctx context.Context, m *Message) error {
-	if err := ctx.Err(); err != nil {
+	if err := receiptContextError(ctx); err != nil {
 		return err
 	}
 	_, err := c.sqs.DeleteMessage(ctx, &sqs.DeleteMessageInput{QueueUrl: &c.cfg.QueueURL, ReceiptHandle: m.ReceiptHandle})
 	if err != nil {
 		return fmt.Errorf("unable to delete message from the queue: %w", err)
+	}
+	return nil
+}
+
+func receiptContextError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Context timer callbacks can lag behind wall-clock deadlines under CPU pressure.
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
 	}
 	return nil
 }

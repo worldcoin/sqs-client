@@ -131,8 +131,10 @@ func TestReceiptBudgetDeleteCancellationIsPropagated(t *testing.T) {
 }
 
 type canceledBatchClient struct {
-	cancel   context.CancelFunc
-	receives atomic.Int32
+	cancel       context.CancelFunc
+	receives     atomic.Int32
+	processed    atomic.Int32
+	acknowledged atomic.Int32
 }
 
 func (s *canceledBatchClient) ReceiveMessage(ctx context.Context, _ *sqs.ReceiveMessageInput, _ ...func(*sqs.Options)) (*sqs.ReceiveMessageOutput, error) {
@@ -140,11 +142,21 @@ func (s *canceledBatchClient) ReceiveMessage(ctx context.Context, _ *sqs.Receive
 	s.cancel()
 	return &sqs.ReceiveMessageOutput{Messages: []types.Message{{ReceiptHandle: aws.String("first")}, {ReceiptHandle: aws.String("second")}}}, nil
 }
-func (*canceledBatchClient) DeleteMessage(context.Context, *sqs.DeleteMessageInput, ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error) {
+func (s *canceledBatchClient) DeleteMessage(ctx context.Context, _ *sqs.DeleteMessageInput, _ ...func(*sqs.Options)) (*sqs.DeleteMessageOutput, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.acknowledged.Add(1)
 	return &sqs.DeleteMessageOutput{}, nil
 }
-func (*canceledBatchClient) Run(context.Context, *Message) error { return nil }
-func (*canceledBatchClient) Shutdown()                           {}
+func (s *canceledBatchClient) Run(ctx context.Context, _ *Message) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.processed.Add(1)
+	return nil
+}
+func (*canceledBatchClient) Shutdown() {}
 
 func TestReceiptBudgetCanceledBatchDispatchDrains(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -160,4 +172,49 @@ func TestReceiptBudgetCanceledBatchDispatchDrains(t *testing.T) {
 		t.Fatal("canceled batch dispatch did not release reservations and drain")
 	}
 	require.EqualValues(t, 1, s.receives.Load())
+	require.EqualValues(t, 2, s.processed.Load(), "cancellation must drain every message already received")
+	require.EqualValues(t, 2, s.acknowledged.Load(), "completed draining work must retain its acknowledgment budget")
+}
+
+// A timer-backed context can expose a past deadline before its callback sets Err.
+type delayedTimerContext struct {
+	context.Context
+	deadline time.Time
+}
+
+func (c delayedTimerContext) Deadline() (time.Time, bool) { return c.deadline, true }
+
+func TestReceiptBudgetDeleteRejectsDeadlineBeforeTimerCallback(t *testing.T) {
+	var deleted bool
+	client := receiptTestClient{delete: func(context.Context, *sqs.DeleteMessageInput) (*sqs.DeleteMessageOutput, error) {
+		deleted = true
+		return &sqs.DeleteMessageOutput{}, nil
+	}}
+	c, err := NewConsumerWithSQSClient(client, receiptConfig(), nil)
+	require.NoError(t, err)
+	ctx := delayedTimerContext{Context: context.Background(), deadline: time.Now().Add(-time.Millisecond)}
+	require.NoError(t, ctx.Err())
+	require.ErrorIs(t, c.delete(ctx, newMessage(&receiptOutput().Messages[0])), context.DeadlineExceeded)
+	require.False(t, deleted)
+}
+
+func TestReceiptBudgetCPUHandlerReturningAfterDeadlineIsNotAcknowledged(t *testing.T) {
+	var deleted bool
+	timeout := time.Millisecond
+	cfg := receiptConfig()
+	cfg.HandlerTimeoutDuration = &timeout
+	client := receiptTestClient{delete: func(context.Context, *sqs.DeleteMessageInput) (*sqs.DeleteMessageOutput, error) {
+		deleted = true
+		return &sqs.DeleteMessageOutput{}, nil
+	}}
+	handler := receiptTestHandler{run: func(ctx context.Context, _ *Message) error {
+		deadline, _ := ctx.Deadline()
+		for time.Now().Before(deadline.Add(time.Millisecond)) {
+		}
+		return nil
+	}}
+	c, err := NewConsumerWithSQSClient(client, cfg, handler)
+	require.NoError(t, err)
+	require.ErrorIs(t, c.handleMsg(context.Background(), newMessage(&receiptOutput().Messages[0]), time.Now().Add(30*time.Second)), context.DeadlineExceeded)
+	require.False(t, deleted)
 }
