@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -92,23 +93,13 @@ func (c *Consumer) Consume(ctx context.Context) {
 			return
 		case <-slots:
 		}
-		reserved := 1
-	reserve:
-		for int32(reserved) < c.cfg.BatchSize {
-			select {
-			case <-slots:
-				reserved++
-			default:
-				break reserve
-			}
-		}
-		release := func(n int) {
-			for i := 0; i < n; i++ {
-				slots <- struct{}{}
-			}
+		// Only intake removes slots; workers can only add capacity after this snapshot.
+		reserved := min(int(c.cfg.BatchSize), 1+len(slots))
+		for i := 1; i < reserved; i++ {
+			<-slots
 		}
 		if ctx.Err() != nil {
-			release(reserved)
+			releaseSlots(slots, reserved)
 			return
 		}
 
@@ -121,7 +112,7 @@ func (c *Consumer) Consume(ctx context.Context) {
 		})
 		cancel()
 		if err != nil {
-			release(reserved)
+			releaseSlots(slots, reserved)
 			if ctx.Err() != nil {
 				return
 			}
@@ -129,16 +120,22 @@ func (c *Consumer) Consume(ctx context.Context) {
 			continue
 		}
 		if output == nil || len(output.Messages) > reserved {
-			release(reserved)
+			releaseSlots(slots, reserved)
 			logConsumerError("invalid SQS receive response", errors.New("message count exceeds reserved capacity or response is nil"), zap.String("queue", c.cfg.QueueURL), zap.String("operation", "ReceiveMessage"))
 			continue
 		}
-		release(reserved - len(output.Messages))
+		releaseSlots(slots, reserved-len(output.Messages))
 		// Reserved capacity guarantees the received batch fits; cancellation drains it.
 		for _, msg := range output.Messages {
 			localMsg := msg
 			jobs <- receivedMessage{message: newMessage(&localMsg), deadline: deadline}
 		}
+	}
+}
+
+func releaseSlots(slots chan<- struct{}, n int) {
+	for i := 0; i < n; i++ {
+		slots <- struct{}{}
 	}
 }
 
@@ -148,10 +145,20 @@ func (c *Consumer) handleMsg(ctx context.Context, m *Message, deadline time.Time
 	var processingDuration, ackDuration time.Duration
 	defer func() {
 		if err != nil {
-			logConsumerError("error processing SQS message", err,
+			fields := []zap.Field{
 				zap.String("queue", c.cfg.QueueURL), zap.String("operation", operation),
 				zap.Duration("receipt_age_upper_bound", time.Since(deadline.Add(-time.Duration(c.cfg.VisibilityTimeoutSeconds)*time.Second))),
-				zap.Duration("processing_duration", processingDuration), zap.Duration("ack_duration", ackDuration))
+				zap.Duration("processing_duration", processingDuration), zap.Duration("ack_duration", ackDuration),
+			}
+			var apiErr smithy.APIError
+			if operation == "handler" && !errors.As(err, &apiErr) {
+				errorText := err.Error()
+				if handle := aws.ToString(m.ReceiptHandle); handle != "" {
+					errorText = strings.ReplaceAll(errorText, handle, "[REDACTED]")
+				}
+				fields = append(fields, zap.String("error", errorText))
+			}
+			logConsumerError("error processing SQS message", err, fields...)
 		}
 	}()
 	// Intake cancellation stops new receives; accepted work drains within its receipt budget.

@@ -279,3 +279,94 @@ func TestReceiptBudgetHandlerFailureIsNotAcknowledged(t *testing.T) {
 	require.ErrorIs(t, c.handleMsg(context.Background(), newMessage(&receiptOutput().Messages[0]), time.Now().Add(30*time.Second)), handlerErr)
 	require.False(t, deleted)
 }
+
+func TestReceiptBudgetHandlerFailureTelemetryPreservesSafeDetails(t *testing.T) {
+	apiErr := &smithy.GenericAPIError{Code: "InvalidParameterValue", Message: "receipt secret-receipt has expired"}
+	for _, tt := range []struct {
+		name      string
+		err       error
+		wantText  string
+		wantCode  string
+		wantCause string
+		receipt   *string
+	}{
+		{name: "application", err: errors.New("invalid payload: missing signup ID"), wantText: "invalid payload: missing signup ID"},
+		{name: "empty receipt", err: errors.New("invalid payload"), wantText: "invalid payload", receipt: aws.String("")},
+		{name: "receipt in application error", receipt: aws.String("secret-receipt"), err: errors.New("invalid receipt secret-receipt: secret-receipt"), wantText: "invalid receipt [REDACTED]: [REDACTED]"},
+		{name: "wrapped deadline", err: fmt.Errorf("process payload: %w", context.DeadlineExceeded), wantText: "process payload: context deadline exceeded", wantCause: "deadline exceeded"},
+		{name: "wrapped cancellation", err: fmt.Errorf("process payload: %w", context.Canceled), wantText: "process payload: context canceled", wantCause: "canceled"},
+		{name: "application wrapped AWS", err: fmt.Errorf("load dependency: %w", &smithy.OperationError{ServiceID: "SQS", OperationName: "DeleteMessage", Err: apiErr}), wantCode: "InvalidParameterValue"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			core, logs := observer.New(zap.ErrorLevel)
+			restore := zap.ReplaceGlobals(zap.New(core))
+			defer restore()
+			handler := receiptTestHandler{run: func(context.Context, *Message) error { return tt.err }}
+			c, err := NewConsumerWithSQSClient(nil, receiptConfig(), handler)
+			require.NoError(t, err)
+			message := newMessage(&types.Message{ReceiptHandle: tt.receipt})
+			require.ErrorIs(t, c.handleMsg(context.Background(), message, time.Now().Add(30*time.Second)), tt.err)
+			require.Len(t, logs.All(), 1)
+			entry := logs.All()[0]
+			fields := entry.ContextMap()
+			require.Equal(t, "handler", fields["operation"])
+			if tt.wantText == "" {
+				require.NotContains(t, fields, "error", "AWS response text must not be logged through handler errors")
+			} else {
+				require.Equal(t, tt.wantText, fields["error"])
+			}
+			if tt.wantCode != "" {
+				require.Equal(t, tt.wantCode, fields["error_code"])
+			}
+			if tt.wantCause != "" {
+				require.Equal(t, tt.wantCause, fields["cause"])
+			}
+			require.NotContains(t, fmt.Sprint(fields), "secret-receipt")
+			require.NotContains(t, entry.Message, "secret-receipt")
+		})
+	}
+}
+
+func TestReceiptBudgetReceiveUsesAvailableCapacityWithinBatchLimit(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		batch int32
+		first int32
+		next  int32
+	}{
+		{name: "partially occupied workers", batch: 2, first: 2, next: 1},
+		{name: "batch limit below free workers", batch: 1, first: 1, next: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			release := make(chan struct{})
+			secondReceive := make(chan struct{})
+			done := make(chan struct{})
+			var receives atomic.Int32
+			client := receiptTestClient{receive: func(ctx context.Context, in *sqs.ReceiveMessageInput) (*sqs.ReceiveMessageOutput, error) {
+				if receives.Add(1) == 1 {
+					require.Equal(t, tt.first, in.MaxNumberOfMessages)
+					return &sqs.ReceiveMessageOutput{Messages: make([]types.Message, tt.first)}, nil
+				}
+				require.Equal(t, tt.next, in.MaxNumberOfMessages)
+				cancel()
+				close(secondReceive)
+				return nil, ctx.Err()
+			}, delete: func(context.Context, *sqs.DeleteMessageInput) (*sqs.DeleteMessageOutput, error) {
+				return &sqs.DeleteMessageOutput{}, nil
+			}}
+			handler := receiptTestHandler{run: func(context.Context, *Message) error { <-release; return nil }}
+			cfg := receiptConfig()
+			cfg.WorkersNum = 3
+			cfg.BatchSize = tt.batch
+			c, err := NewConsumerWithSQSClient(client, cfg, handler)
+			require.NoError(t, err)
+			go func() { c.Consume(ctx); close(done) }()
+			waitReceiptTest(t, secondReceive)
+			close(release)
+			waitReceiptTest(t, done)
+			require.EqualValues(t, 2, receives.Load())
+		})
+	}
+}
